@@ -23,9 +23,10 @@ rpc_url = "https://mainnet.ckb.dev/rpc"
 # run `ckb-indexer` separately.
 # indexer_rpc_url = "https://mainnet.ckb.dev/indexer"
 
-# Scanning before RGB++ existed is wasted work. Set this to the block where the
-# protocol went live on the network you are indexing.
-start_block = 11_800_000
+# First block where this deployment's RGB++ lock appears on chain, confirmed by
+# querying it (`get_transactions`, order "asc", limit 1). Scanning earlier is pure
+# waste; scanning later silently misses history. Re-derive after a redeployment.
+start_block = 12_611_879
 
 # Stay this far behind the tip. Everything below the line is treated as settled,
 # which is what lets this version skip rollback entirely. The window it creates is
@@ -34,6 +35,13 @@ reorg_lag = 24
 
 batch_blocks = 500
 page_limit = 200
+
+# Concurrent `get_transaction` fetches per scan round. The rich indexer matches
+# transactions without returning their bodies, so each match costs a second call;
+# these are issued concurrently and applied in order. Raise it against a node on the
+# same host — 16 roughly halved a dense range against a public endpoint, and a local
+# node has far more headroom.
+fetch_concurrency = 8
 poll_interval_secs = 5
 request_timeout_secs = 30
 
@@ -52,8 +60,10 @@ base_url = "https://mempool.space/api"
 request_timeout_secs = 20
 max_concurrency = 8
 min_request_interval_ms = 50
+# An observation younger than this is still authoritative, so redundant refresh-queue
+# entries are dropped instead of re-queried. Does not affect the daily sweep or a
+# synchronous API refresh.
 observation_ttl_secs = 60
-confirmations_for_final = 6
 
 [protocol.rgbpp_lock]
 code_hash = "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936"
@@ -63,20 +73,45 @@ hash_type = "type"
 code_hash = "0x70d64497a075bd651e98ac030455ea200637ee325a12ad08aff03f1a117e5a62"
 hash_type = "type"
 
-# Type scripts the indexer can label. Unknown type scripts are still indexed — they
-# are reported as `asset_kind = "unknown"` with their raw type script attached — so
-# this list only affects labelling and fungible-amount decoding.
+# Type scripts the indexer can label. Unknown type scripts are still indexed — the
+# cell is stored with its raw type script and reported as `asset_kind = "unknown"` —
+# so this list only affects labelling and fungible-amount decoding. Getting it wrong
+# is therefore silent: cells index fine but balances come back empty.
+#
+# Every entry below was read off this network's chain, not copied from a table.
+# Re-derive after a redeployment with:
+#
+#   curl -s -X POST $CKB_RPC_URL -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0",
+#     "id":1,"method":"get_cells","params":[{"script":{"code_hash":"<rgbpp_lock>",
+#     "hash_type":"type","args":"0x"},"script_type":"lock","script_search_mode":"prefix",
+#     "with_data":true},"desc","0x64"]}'
+#
+# then group the results by `output.type`. Cells whose data is exactly 16 bytes are
+# fungible (the u128 amount); molecule-shaped data containing `dob/0` is Spore.
+#
+# Sample both ends of the history, not just recent cells. A redeployment does not
+# rewrite existing cells, so the list is cumulative: mainnet needs two xUDT entries
+# because cells from RGB++'s first weeks still carry the older code hash. Swap "desc"
+# for "asc" to see the earliest.
+
+# Currently in use.
+[[assets.xudt]]
+code_hash = "0xbfa35a9c38a676682b65ade8f02be164d48632281477e36f8dc2f41f79e56bfc"
+hash_type = "type"
+
+# The xUDT deployment RGB++ used in its first weeks. Still required: cells created
+# back then keep this code hash forever, so dropping it would make every historical
+# balance read as `unknown` with no amount.
 [[assets.xudt]]
 code_hash = "0x50bd8d6680b8b9cf98b73f3c08faf8b2a21914311954118ad6609be6e78a1b95"
 hash_type = "data1"
 
-[[assets.sudt]]
-code_hash = "0x5e7a36a77e68eecc013dfa2fe6a23f3b6c344b04005808694ae6dd45eea4cfd5"
-hash_type = "type"
+[[assets.spore]]
+code_hash = "0x4a4dce1df3dffff7f8b2cd7dff7303df3b6150c9788cb75dcf6747247132b9f5"
+hash_type = "data1"
 
-# [[assets.spore]]
-# code_hash = "0x..."
-# hash_type = "data1"
+# No sUDT-locked RGB++ cell was observed on mainnet. Add one here if you see
+# `asset_kind = "unknown"` on cells whose data is exactly 16 bytes.
 
 [reconcile]
 enabled = true
@@ -102,6 +137,7 @@ require_synced_within_blocks = 1_000
 # drops an indexed fact. Set to false to stop the verifier making Bitcoin requests.
 commitments = true
 batch_size = 100
+interval_secs = 30
 
 [log]
 # One summary line per window while catching up, instead of one per scan round.

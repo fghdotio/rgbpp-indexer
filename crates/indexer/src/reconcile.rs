@@ -453,10 +453,52 @@ impl Reconciler {
             return Ok(0);
         }
 
-        let outpoints: Vec<BtcOutPoint> = batch
+        let claimed: Vec<BtcOutPoint> = batch
             .iter()
             .map(|item| item.out_point())
             .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        // Several paths queue the same outpoint — an address diff, a spend follow-up,
+        // the sweeper. By the time an entry is claimed, another path may already have
+        // answered it. An observation younger than the TTL is still authoritative, so
+        // re-querying it would spend a request on the Bitcoin data source to learn
+        // nothing.
+        let ttl = self.config.btc.observation_ttl_secs as i64;
+        let now = chrono::Utc::now();
+        let txids: Vec<Vec<u8>> = claimed.iter().map(|o| o.txid.to_display_vec()).collect();
+        let vouts: Vec<i32> = claimed.iter().map(|o| o.vout as i32).collect();
+
+        let mut already_fresh: HashSet<BtcOutPoint> = HashSet::new();
+        for row in self.store.get_observations(&txids, &vouts).await? {
+            if row.is_fresh(ttl, now) {
+                already_fresh.insert(row.out_point()?);
+            }
+        }
+
+        let outpoints: Vec<BtcOutPoint> = claimed
+            .iter()
+            .copied()
+            .filter(|o| !already_fresh.contains(o))
+            .collect();
+
+        // A fresh observation satisfies the queue entry: clear it rather than
+        // leaving it to be reclaimed and skipped again on the next pass.
+        for outpoint in &already_fresh {
+            self.store
+                .complete_refresh(&outpoint.txid.to_display_vec(), outpoint.vout as i32)
+                .await?;
+        }
+        if !already_fresh.is_empty() {
+            debug!(
+                skipped = already_fresh.len(),
+                remaining = outpoints.len(),
+                ttl_secs = ttl,
+                "dropped queue entries already answered within the observation ttl"
+            );
+        }
+        if outpoints.is_empty() {
+            return Ok(0);
+        }
 
         let refreshed = self.refresh_outpoints(&outpoints).await?;
         let succeeded: HashSet<BtcOutPoint> = refreshed.iter().map(|r| r.outpoint).collect();

@@ -10,11 +10,12 @@
 //! logic entirely. The cost is a deliberate blind spot near the tip, covered by the
 //! Bitcoin-driven on-demand path rather than by indexing further.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use rgbpp_ckb::CkbClient;
-use rgbpp_ckb::types::{IoType, RpcHeader, TxRecord};
+use futures::stream::{self, StreamExt};
+use rgbpp_ckb::types::{IoType, RpcHeader, TransactionWithStatus, TxRecord};
 use rgbpp_types::ckb::{CellOutput, CkbOutPoint, H256, Script};
 use rgbpp_types::config::Config;
 use rgbpp_types::protocol::{LockBinding, LockKind, ProtocolScripts};
@@ -160,7 +161,11 @@ impl CkbScanner {
             ..Default::default()
         };
 
-        let mut headers: BTreeMap<u64, RpcHeader> = BTreeMap::new();
+        // Headers first, concurrently. Every record needs the hash and timestamp of
+        // its block, and distinct blocks are far fewer than transactions, so this is
+        // a small fan-out that removes an await from the processing loop entirely.
+        let headers = self.fetch_headers(&records).await?;
+
         let mut batch = IndexBatch {
             chain_tip: chain_tip as i64,
             target: target as i64,
@@ -168,15 +173,42 @@ impl CkbScanner {
             ..Default::default()
         };
 
-        for record in &records {
-            let header = self.header(&mut headers, record.block_number.0).await?;
+        // The rich indexer matches transactions without returning their bodies, so
+        // each match costs a second call. Those are issued concurrently while results
+        // are still consumed in the original order: `buffered` (not
+        // `buffer_unordered`) is what buys the concurrency without giving up the
+        // ordering that batch construction depends on — a cell created and consumed
+        // within the same round has to resolve against the earlier entry.
+        //
+        // It also bounds memory: at most `fetch_concurrency` transaction bodies are
+        // held at once, regardless of how many the range contains.
+        let mut fetched = stream::iter(records)
+            .map(|record| async move {
+                let result = self.ckb.get_transaction(&record.tx_hash).await;
+                (record, result)
+            })
+            .buffered(self.config.ckb.fetch_concurrency);
+
+        while let Some((record, result)) = fetched.next().await {
+            let Some(with_status) = result? else {
+                return Err(IndexerError::inconsistent(format!(
+                    "rich indexer reported transaction {} which the node cannot return",
+                    record.tx_hash
+                )));
+            };
+            let Some(header) = headers.get(&record.block_number.0) else {
+                return Err(IndexerError::inconsistent(format!(
+                    "no header fetched for block {}",
+                    record.block_number.0
+                )));
+            };
             let block = BlockContext {
                 number: record.block_number.0,
                 hash: header.hash,
                 timestamp: extract::ckb_timestamp(header.timestamp.0),
                 tx_index: record.tx_index.0,
             };
-            self.process_transaction(record, &block, &mut batch, &mut round)
+            self.process_transaction(&record, &block, with_status, &mut batch, &mut round)
                 .await?;
         }
 
@@ -193,7 +225,10 @@ impl CkbScanner {
             });
         }
         // The checkpoint block itself, unless it already went in as an activity block.
-        let checkpoint_header = self.header(&mut headers, to).await?;
+        let checkpoint_header = match headers.get(&to) {
+            Some(header) => header.clone(),
+            None => self.header_at(to).await?,
+        };
         if batch.blocks.iter().all(|b| b.number != to as i64) {
             batch.blocks.push(BlockRecord {
                 number: to as i64,
@@ -263,19 +298,10 @@ impl CkbScanner {
         &self,
         record: &TxRecord,
         block: &BlockContext,
+        with_status: TransactionWithStatus,
         batch: &mut IndexBatch,
         round: &mut ScanRound,
     ) -> Result<()> {
-        let with_status = self
-            .ckb
-            .get_transaction(&record.tx_hash)
-            .await?
-            .ok_or_else(|| {
-                IndexerError::inconsistent(format!(
-                    "rich indexer reported transaction {} which the node cannot return",
-                    record.tx_hash
-                ))
-            })?;
         let tx = with_status.transaction.ok_or_else(|| {
             IndexerError::inconsistent(format!(
                 "node returned transaction {} without a body",
@@ -486,21 +512,27 @@ impl CkbScanner {
         }))
     }
 
-    async fn header(
-        &self,
-        cache: &mut BTreeMap<u64, RpcHeader>,
-        number: u64,
-    ) -> Result<RpcHeader> {
-        if let Some(header) = cache.get(&number) {
-            return Ok(header.clone());
-        }
-        let header = self
-            .ckb
+    /// Fetch the header of every block that produced a match, concurrently.
+    ///
+    /// Deduplicated first: a block with twenty RGB++ transactions still costs one
+    /// header.
+    async fn fetch_headers(&self, records: &[TxRecord]) -> Result<BTreeMap<u64, RpcHeader>> {
+        let numbers: BTreeSet<u64> = records.iter().map(|r| r.block_number.0).collect();
+
+        let fetched: Vec<Result<(u64, RpcHeader)>> = stream::iter(numbers)
+            .map(|number| async move { Ok((number, self.header_at(number).await?)) })
+            .buffer_unordered(self.config.ckb.fetch_concurrency)
+            .collect()
+            .await;
+
+        fetched.into_iter().collect()
+    }
+
+    async fn header_at(&self, number: u64) -> Result<RpcHeader> {
+        self.ckb
             .get_header_by_number(number)
             .await?
-            .ok_or_else(|| IndexerError::inconsistent(format!("node has no header at {number}")))?;
-        cache.insert(number, header.clone());
-        Ok(header)
+            .ok_or_else(|| IndexerError::inconsistent(format!("node has no header at {number}")))
     }
 
     /// Confirm the chain still agrees with our checkpoint before extending it.

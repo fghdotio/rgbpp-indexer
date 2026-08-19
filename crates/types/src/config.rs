@@ -93,10 +93,23 @@ pub struct VerifyConfig {
     /// How many unchecked transitions to verify per pass.
     #[serde(default = "default_verify_batch")]
     pub batch_size: i64,
+    /// Seconds between passes.
+    #[serde(default = "default_verify_interval")]
+    pub interval_secs: u64,
+}
+
+fn default_verify_interval() -> u64 {
+    30
 }
 
 fn default_verify_batch() -> i64 {
     100
+}
+
+impl VerifyConfig {
+    pub fn interval(&self) -> Duration {
+        Duration::from_secs(self.interval_secs.max(1))
+    }
 }
 
 impl Default for VerifyConfig {
@@ -104,6 +117,7 @@ impl Default for VerifyConfig {
         VerifyConfig {
             commitments: true,
             batch_size: default_verify_batch(),
+            interval_secs: default_verify_interval(),
         }
     }
 }
@@ -169,6 +183,15 @@ pub struct CkbConfig {
     /// `get_transactions` page size.
     #[serde(default = "default_page_limit")]
     pub page_limit: u32,
+    /// Concurrent `get_transaction` fetches within one scan round.
+    ///
+    /// The rich indexer returns matches without transaction bodies, so each matched
+    /// transaction costs a second call. Fetched concurrently, applied in order: the
+    /// ordering constraint is on *processing* (a cell created and consumed in the
+    /// same round has to resolve), not on retrieval. Raise this against a node on the
+    /// same host; keep it modest against a shared endpoint.
+    #[serde(default = "default_fetch_concurrency")]
+    pub fetch_concurrency: usize,
     #[serde(default = "default_ckb_poll_secs")]
     pub poll_interval_secs: u64,
     #[serde(default = "default_request_timeout_secs")]
@@ -190,6 +213,9 @@ fn default_batch_blocks() -> u64 {
 }
 fn default_page_limit() -> u32 {
     200
+}
+fn default_fetch_concurrency() -> usize {
+    8
 }
 fn default_ckb_poll_secs() -> u64 {
     5
@@ -237,12 +263,15 @@ pub struct BtcConfig {
     /// Minimum spacing between requests, for public endpoints with rate limits.
     #[serde(default = "default_min_interval_ms")]
     pub min_request_interval_ms: u64,
-    /// How long an outpoint observation counts as fresh before a re-check.
+    /// How long an outpoint observation counts as fresh.
+    ///
+    /// Used to drop redundant work from the refresh queue: an observation younger
+    /// than this is still authoritative, so re-querying it would spend a request to
+    /// learn nothing. Does not apply to the daily sweep, which re-observes
+    /// everything by design, nor to a synchronous API refresh, which the caller
+    /// asked for explicitly.
     #[serde(default = "default_observation_ttl_secs")]
     pub observation_ttl_secs: u64,
-    /// Confirmations after which a Bitcoin fact is treated as settled.
-    #[serde(default = "default_confirmations")]
-    pub confirmations_for_final: u32,
 }
 
 fn default_btc_concurrency() -> usize {
@@ -254,16 +283,9 @@ fn default_min_interval_ms() -> u64 {
 fn default_observation_ttl_secs() -> u64 {
     60
 }
-fn default_confirmations() -> u32 {
-    6
-}
 impl BtcConfig {
     pub fn request_timeout(&self) -> Duration {
         Duration::from_secs(self.request_timeout_secs)
-    }
-
-    pub fn observation_ttl(&self) -> Duration {
-        Duration::from_secs(self.observation_ttl_secs)
     }
 }
 
@@ -391,6 +413,16 @@ impl Default for ApiConfig {
     }
 }
 
+/// Parse one numeric override, leaving the configured value in place if it does not
+/// parse. A malformed override should not take the process down — but it must not
+/// pass silently either, or a typo becomes an invisible performance cliff.
+fn apply_numeric<T: std::str::FromStr>(name: &str, raw: &str, target: &mut T) {
+    match raw.replace('_', "").parse::<T>() {
+        Ok(value) => *target = value,
+        Err(_) => eprintln!("ignoring {name}={raw:?}: not a number"),
+    }
+}
+
 impl Config {
     pub fn from_toml_str(s: &str) -> Result<Self> {
         let mut config: Config =
@@ -423,7 +455,14 @@ impl Config {
     }
 
     /// The override logic, with the environment injected so it can be tested.
+    ///
+    /// Two groups. Deployment identity — which database, which node, which port —
+    /// changes per environment and belongs here. Tuning is here only for the handful
+    /// of knobs that differ by an order of magnitude between a public endpoint and
+    /// self-hosted infrastructure; policy settings (sweep, verify, log) stay in the
+    /// config file, where they are reviewable as a set.
     fn apply_overrides(&mut self, get: impl Fn(&str) -> Option<String>) {
+        // --- identity -------------------------------------------------------
         if let Some(v) = get("DATABASE_URL") {
             self.database.url = v;
         }
@@ -432,18 +471,6 @@ impl Config {
         }
         if let Some(v) = get("CKB_INDEXER_RPC_URL") {
             self.ckb.indexer_rpc_url = Some(v);
-        }
-        if let Some(v) = get("CKB_START_BLOCK") {
-            match v.replace('_', "").parse() {
-                Ok(n) => self.ckb.start_block = n,
-                Err(_) => eprintln!("ignoring CKB_START_BLOCK={v:?}: not a block number"),
-            }
-        }
-        if let Some(v) = get("REORG_LAG") {
-            match v.parse() {
-                Ok(n) => self.ckb.reorg_lag = n,
-                Err(_) => eprintln!("ignoring REORG_LAG={v:?}: not a number"),
-            }
         }
         if let Some(v) = get("BTC_BASE_URL") {
             self.btc.base_url = v;
@@ -457,6 +484,43 @@ impl Config {
         }
         if let Some(v) = get("API_BIND") {
             self.api.bind = v;
+        }
+
+        // --- chain position -------------------------------------------------
+        if let Some(v) = get("CKB_START_BLOCK") {
+            apply_numeric("CKB_START_BLOCK", &v, &mut self.ckb.start_block);
+        }
+        if let Some(v) = get("REORG_LAG") {
+            apply_numeric("REORG_LAG", &v, &mut self.ckb.reorg_lag);
+        }
+
+        // --- throughput -----------------------------------------------------
+        // These are the settings that differ by an order of magnitude between a
+        // rate-limited public endpoint and a node on the same host.
+        if let Some(v) = get("CKB_PAGE_LIMIT") {
+            apply_numeric("CKB_PAGE_LIMIT", &v, &mut self.ckb.page_limit);
+        }
+        if let Some(v) = get("CKB_FETCH_CONCURRENCY") {
+            apply_numeric("CKB_FETCH_CONCURRENCY", &v, &mut self.ckb.fetch_concurrency);
+        }
+        if let Some(v) = get("CKB_BATCH_BLOCKS") {
+            apply_numeric("CKB_BATCH_BLOCKS", &v, &mut self.ckb.batch_blocks);
+        }
+        if let Some(v) = get("CKB_POLL_INTERVAL_SECS") {
+            apply_numeric("CKB_POLL_INTERVAL_SECS", &v, &mut self.ckb.poll_interval_secs);
+        }
+        if let Some(v) = get("BTC_MAX_CONCURRENCY") {
+            apply_numeric("BTC_MAX_CONCURRENCY", &v, &mut self.btc.max_concurrency);
+        }
+        if let Some(v) = get("BTC_MIN_REQUEST_INTERVAL_MS") {
+            apply_numeric(
+                "BTC_MIN_REQUEST_INTERVAL_MS",
+                &v,
+                &mut self.btc.min_request_interval_ms,
+            );
+        }
+        if let Some(v) = get("DB_MAX_CONNECTIONS") {
+            apply_numeric("DB_MAX_CONNECTIONS", &v, &mut self.database.max_connections);
         }
     }
 
@@ -472,6 +536,11 @@ impl Config {
         }
         if self.ckb.page_limit == 0 {
             return Err(Error::Config("ckb.page_limit must be positive".into()));
+        }
+        if self.ckb.fetch_concurrency == 0 {
+            return Err(Error::Config(
+                "ckb.fetch_concurrency must be positive".into(),
+            ));
         }
         if self.ckb.batch_blocks == 0 {
             return Err(Error::Config("ckb.batch_blocks must be positive".into()));
@@ -529,6 +598,7 @@ hash_type = "type"
         assert_eq!(config.ckb.reorg_lag, 24);
         assert_eq!(config.ckb.indexer_url(), "http://127.0.0.1:8114");
         assert!(config.sweep.enabled);
+        assert_eq!(config.verify.interval().as_secs(), 30);
     }
 
     #[test]
@@ -579,17 +649,54 @@ hash_type = "type"
     }
 
     #[test]
+    fn throughput_overrides_reach_the_right_fields() {
+        // These are the knobs that differ by an order of magnitude between a
+        // rate-limited public endpoint and a node on the same host.
+        let mut config = Config::from_toml_str(MINIMAL).unwrap();
+        let overrides: std::collections::HashMap<&str, &str> = [
+            ("CKB_PAGE_LIMIT", "1000"),
+            ("CKB_FETCH_CONCURRENCY", "32"),
+            ("CKB_BATCH_BLOCKS", "2_000"),
+            ("CKB_POLL_INTERVAL_SECS", "2"),
+            ("BTC_MAX_CONCURRENCY", "64"),
+            ("BTC_MIN_REQUEST_INTERVAL_MS", "0"),
+            ("DB_MAX_CONNECTIONS", "32"),
+        ]
+        .into_iter()
+        .collect();
+
+        config.apply_overrides(|key| overrides.get(key).map(|v| v.to_string()));
+
+        assert_eq!(config.ckb.page_limit, 1_000);
+        assert_eq!(config.ckb.fetch_concurrency, 32);
+        assert_eq!(config.ckb.batch_blocks, 2_000);
+        assert_eq!(config.ckb.poll_interval_secs, 2);
+        assert_eq!(config.btc.max_concurrency, 64);
+        assert_eq!(
+            config.btc.min_request_interval_ms, 0,
+            "zero must survive: it is what removes the rate limit on self-hosted infra"
+        );
+        assert_eq!(config.database.max_connections, 32);
+    }
+
+    #[test]
     fn an_unparseable_override_is_ignored_rather_than_fatal() {
         let mut config = Config::from_toml_str(MINIMAL).unwrap();
-        let overrides: std::collections::HashMap<&str, &str> =
-            [("REORG_LAG", "soon"), ("BTC_SOURCE", "electrum")]
-                .into_iter()
-                .collect();
+        let overrides: std::collections::HashMap<&str, &str> = [
+            ("REORG_LAG", "soon"),
+            ("BTC_SOURCE", "electrum"),
+            ("BTC_MAX_CONCURRENCY", "lots"),
+            ("CKB_PAGE_LIMIT", "-1"),
+        ]
+        .into_iter()
+        .collect();
 
         config.apply_overrides(|key| overrides.get(key).map(|v| v.to_string()));
 
         assert_eq!(config.ckb.reorg_lag, 24, "kept the configured value");
         assert_eq!(config.btc.source, BtcSourceKind::Esplora);
+        assert_eq!(config.btc.max_concurrency, 8);
+        assert_eq!(config.ckb.page_limit, 200, "a negative value is not a u32");
     }
 
     #[test]

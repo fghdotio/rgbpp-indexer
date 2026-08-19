@@ -64,7 +64,7 @@ impl CommitmentVerifier {
                 Ok(_) => {}
                 Err(e) => warn!(error = %e, "commitment verification failed"),
             }
-            if shutdown.sleep(std::time::Duration::from_secs(30)).await {
+            if shutdown.sleep(self.config.verify.interval()).await {
                 return;
             }
         }

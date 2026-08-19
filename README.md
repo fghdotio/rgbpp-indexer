@@ -222,9 +222,26 @@ rgbpp-indexer refresh <txid:vout>...
 
 ### Configuration
 
-TOML plus a small set of environment overrides (`DATABASE_URL`, `CKB_RPC_URL`,
-`CKB_START_BLOCK`, `REORG_LAG`, `BTC_SOURCE`, `BTC_BASE_URL`, `API_BIND`) so one image
-can serve several deployments. See [`.env.example`](.env.example).
+TOML plus a fixed set of environment overrides, so one image can serve several
+deployments. The environment carries **deployment identity** — `DATABASE_URL`,
+`CKB_RPC_URL`, `CKB_INDEXER_RPC_URL`, `CKB_START_BLOCK`, `REORG_LAG`, `BTC_SOURCE`,
+`BTC_BASE_URL`, `API_BIND` — plus the few **throughput** settings that differ by an
+order of magnitude between a public endpoint and self-hosted infrastructure:
+`CKB_PAGE_LIMIT`, `CKB_BATCH_BLOCKS`, `CKB_FETCH_CONCURRENCY`,
+`CKB_POLL_INTERVAL_SECS`, `BTC_MAX_CONCURRENCY`, `BTC_MIN_REQUEST_INTERVAL_MS`,
+`DB_MAX_CONNECTIONS`.
+
+Policy settings (the sweep, verify and log sections) are TOML-only: they are meant to
+be reviewed as a set, and a value with two sources drifts. `.env.example` is the
+complete list of what the binary reads — anything absent from it does nothing.
+
+Self-hosting both backends, the defaults to change are:
+
+```bash
+CKB_PAGE_LIMIT=1000 CKB_BATCH_BLOCKS=2000 \
+BTC_MIN_REQUEST_INTERVAL_MS=0 BTC_MAX_CONCURRENCY=64 \
+DB_MAX_CONNECTIONS=32 ./scripts/rgbpp.sh up
+```
 
 The knobs that matter most:
 
@@ -233,10 +250,13 @@ The knobs that matter most:
 | `ckb.start_block` | — | Where RGB++ went live. Scanning earlier is wasted work; setting it too late is handled by backfill, but slowly. |
 | `ckb.reorg_lag` | 24 | How far behind the tip to stay. Larger is safer and blinder. |
 | `ckb.batch_blocks` | 500 | Block span per scan round. |
+| `ckb.fetch_concurrency` | 8 | Concurrent `get_transaction` per round. The rich indexer matches transactions without their bodies, so each match costs a second call; raising this is the main lever on catch-up speed. |
 | `log.progress_interval_secs` | 15 | How often to summarise sync progress. |
 | `log.heartbeat_interval_secs` | 300 | Operational one-liner cadence; `0` disables. |
-| `btc.observation_ttl_secs` | 60 | How long an observation counts as fresh. |
-| `btc.min_request_interval_ms` | 50 | Politeness for public endpoints. |
+| `btc.observation_ttl_secs` | 60 | Below this age an observation is reused instead of re-queried. |
+| `btc.min_request_interval_ms` | 50 | Politeness for public endpoints. **Set to 0 when self-hosting** — it is a global ceiling, so 50ms caps you at 20 req/s no matter what `max_concurrency` says. |
+| `btc.max_concurrency` | 8 | Concurrent Bitcoin requests. |
+| `verify.interval_secs` | 30 | Seconds between commitment-verification passes. |
 | `sweep.misspend_grace_confirmations` | 6 | Bitcoin confirmations before flagging a spend as unmatched. |
 | `verify.commitments` | true | Cross-check commitments; costs Bitcoin requests. |
 
