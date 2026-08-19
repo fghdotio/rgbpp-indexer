@@ -1,4 +1,9 @@
-name: rgbpp-indexer
+# Compose prefixes every container and volume with this. The `-op` suffix keeps this
+# deployment from colliding with other variants of the same project on one machine:
+# containers come out as `rgbpp-op-postgres-1` and `rgbpp-op-indexer-1`, and the
+# volume as `rgbpp-op_pgdata`. Ports are the other collision point — override
+# POSTGRES_PORT and API_PORT to run several side by side.
+name: rgbpp-op
 
 services:
   postgres:
@@ -19,6 +24,10 @@ services:
     restart: unless-stopped
 
   indexer:
+    # Declared rather than derived from the project name, so the image keeps its
+    # identity if the project is ever renamed, and can be tagged for a registry
+    # without editing this file: IMAGE_TAG=v0.1.0 ./scripts/rgbpp.sh build
+    image: rgbpp/indexer-op:${IMAGE_TAG:-latest}
     build:
       context: .
     depends_on:
