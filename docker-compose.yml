@@ -1,0 +1,49 @@
+name: rgbpp-indexer
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rgbpp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rgbpp}
+      POSTGRES_DB: ${POSTGRES_DB:-rgbpp}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rgbpp}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  indexer:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # The container talks to Postgres over the compose network, so this always
+      # overrides whatever host-facing URL the config file carries.
+      DATABASE_URL: postgres://${POSTGRES_USER:-rgbpp}:${POSTGRES_PASSWORD:-rgbpp}@postgres:5432/${POSTGRES_DB:-rgbpp}
+      RGBPP_CONFIG: ${RGBPP_CONFIG:-/app/config/testnet.toml}
+      CKB_RPC_URL: ${CKB_RPC_URL:-}
+      CKB_INDEXER_RPC_URL: ${CKB_INDEXER_RPC_URL:-}
+      CKB_START_BLOCK: ${CKB_START_BLOCK:-}
+      REORG_LAG: ${REORG_LAG:-}
+      BTC_SOURCE: ${BTC_SOURCE:-}
+      BTC_BASE_URL: ${BTC_BASE_URL:-}
+      API_BIND: 0.0.0.0:8080
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      # Mounted read-only so a config change is an edit plus a restart, not a rebuild.
+      - ./config:/app/config:ro
+    restart: unless-stopped
+
+volumes:
+  pgdata:

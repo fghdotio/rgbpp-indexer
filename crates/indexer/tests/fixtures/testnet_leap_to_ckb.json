@@ -1,0 +1,44 @@
+{
+  "note": "CKB testnet leap-to-CKB edd49a5b\u2026 committed by BTC testnet3 tx 3664deff\u2026",
+  "expected_commitment": "cd6fa140fcc179bd004765a482d4b206ce265c3571011e2327e7f3e3ad7e6bf1",
+  "rgbpp_input_count": 2,
+  "rgbpp_output_count": 1,
+  "transaction": {
+    "hash": "0xedd49a5b4dc39a692060f2f48dbbd9a97069c2cc53996ab3db57ff9fc38008ea",
+    "version": "0x0",
+    "inputs": [
+      {
+        "previous_output": {
+          "index": "0x0",
+          "tx_hash": "0xe20bc595cbd2b2d17271c66f7fa30e8b838ccdecef6bf01580bc2ac27bd530f8"
+        },
+        "since": "0x0"
+      },
+      {
+        "previous_output": {
+          "index": "0x0",
+          "tx_hash": "0x89e55f780aa04a034ba70f58c359779c8a4aadfb0bce22cf494219637f9fff19"
+        },
+        "since": "0x0"
+      }
+    ],
+    "outputs": [
+      {
+        "capacity": "0x125b3aea5d",
+        "lock": {
+          "args": "0x7f000000100000005b0000005f0000004b000000100000003000000031000000d23761b364210735c19c60561d213fb3beae2fd6172743719eff6920e020baac01160000000001be158c30803ffb68868bd8f07fd9cb3456a6e6fe0600000008332665861b6b458fae112fd2f8060f1c889e0304cd3c081aae4891ffde6436",
+          "code_hash": "0x00cdf8fab0f8ac638758ebf5ea5e4052b1d71e8a77b9f43139718621f6849326",
+          "hash_type": "type"
+        },
+        "type": {
+          "args": "0xb9093a7a6b9c4f3ed24961d819e00a1d867de19b48849e39888591fcb9ec4f99",
+          "code_hash": "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d",
+          "hash_type": "data1"
+        }
+      }
+    ],
+    "outputs_data": [
+      "0x58000000100000001e000000340000000a000000746578742f706c61696e1200000073706f7265207465787420636f6e74656e7420000000ecd38aa133771b9ed2cabd879a62297f23b9230314a2dd260afd73e7241f0ad3"
+    ]
+  }
+}

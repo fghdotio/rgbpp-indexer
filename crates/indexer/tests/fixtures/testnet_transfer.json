@@ -1,0 +1,68 @@
+{
+  "note": "CKB testnet transfer a8070b02\u2026 committed by BTC testnet3 tx 2996c435\u2026",
+  "expected_commitment": "1f194caefedd691bdf267e7d06aa38509401f96be83245307ee4c86372fd2dfc",
+  "rgbpp_input_count": 1,
+  "rgbpp_output_count": 2,
+  "transaction": {
+    "hash": "0xa8070b0232f728393cbdd6db5cca080474347e4d15e8d3337f8d1eef93f16614",
+    "version": "0x0",
+    "inputs": [
+      {
+        "previous_output": {
+          "index": "0xfe",
+          "tx_hash": "0xf1f6d4473c0767413c72677c0c8c1c432c31a56252f82ecd13180d0e8683b3cb"
+        },
+        "since": "0x0"
+      },
+      {
+        "previous_output": {
+          "index": "0x2",
+          "tx_hash": "0x71aaff7401db327d1d5c884b2db8e88444de03717767878fed3b7647fe25f915"
+        },
+        "since": "0x0"
+      }
+    ],
+    "outputs": [
+      {
+        "capacity": "0x5e9f53e00",
+        "lock": {
+          "args": "0x0100000011a254019d45074b7d340559c653cb315bf0ff84810331ae3fc3a90235c49629",
+          "code_hash": "0x61ca7a4796a4eb19ca4f0d065cb9b10ddcf002f10f7cbb810c706cb6bb5c3248",
+          "hash_type": "type"
+        },
+        "type": {
+          "args": "0xffcdf9eaf9da87f2215b075cded01b775cf66f4ed59d847ce2eb90ffd07ad3d5",
+          "code_hash": "0x25c29dc317811a6f6f3985a7a9ebc4838bd388d19d0feeecf0bcd60f6c0975bb",
+          "hash_type": "type"
+        }
+      },
+      {
+        "capacity": "0x5e9f53e00",
+        "lock": {
+          "args": "0x0200000011a254019d45074b7d340559c653cb315bf0ff84810331ae3fc3a90235c49629",
+          "code_hash": "0x61ca7a4796a4eb19ca4f0d065cb9b10ddcf002f10f7cbb810c706cb6bb5c3248",
+          "hash_type": "type"
+        },
+        "type": {
+          "args": "0xffcdf9eaf9da87f2215b075cded01b775cf66f4ed59d847ce2eb90ffd07ad3d5",
+          "code_hash": "0x25c29dc317811a6f6f3985a7a9ebc4838bd388d19d0feeecf0bcd60f6c0975bb",
+          "hash_type": "type"
+        }
+      },
+      {
+        "capacity": "0x9e97b428a50",
+        "lock": {
+          "args": "0x7e1094633f60670e6df7a1bf5cb9bdcf3d937026",
+          "code_hash": "0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8",
+          "hash_type": "type"
+        },
+        "type": null
+      }
+    ],
+    "outputs_data": [
+      "0x000064a7b3b6e00d0000000000000000",
+      "0x0000285039a6e2b3244a0c0000000000",
+      "0x"
+    ]
+  }
+}

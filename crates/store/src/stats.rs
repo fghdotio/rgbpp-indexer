@@ -1,0 +1,128 @@
+//! Derived aggregates.
+//!
+//! Every number here is a `SELECT` over the fact tables. Nothing is incremented and
+//! stored, because a stored counter is exactly the thing a reorg would force us to
+//! correct in reverse — and a counter that drifts is far harder to notice than a
+//! query that is a little slower.
+
+use serde::Serialize;
+use sqlx::Postgres;
+
+use crate::error::Result;
+use crate::models::AssetBalanceRow;
+use crate::Store;
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct IndexerCounts {
+    pub total_cells: i64,
+    pub live_cells: i64,
+    pub pending_ckb_cells: i64,
+    pub transitions: i64,
+    pub observed_outpoints: i64,
+    pub open_anomalies: i64,
+    pub refresh_queue_depth: i64,
+}
+
+impl Store {
+    pub async fn counts(&self) -> Result<IndexerCounts> {
+        // One round trip: these are all cheap aggregates but there is no reason to
+        // pay latency five times for a status endpoint.
+        let row: (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM rgbpp_cells),
+                (SELECT COUNT(*) FROM rgbpp_cells WHERE consumed_block_number IS NULL),
+                (SELECT COUNT(*) FROM rgbpp_cell_status WHERE status = 'pending_ckb'),
+                (SELECT COUNT(*) FROM rgbpp_transitions),
+                (SELECT COUNT(*) FROM btc_outpoints),
+                (SELECT COUNT(*) FROM rgbpp_anomalies WHERE resolved_at IS NULL),
+                (SELECT COUNT(*) FROM btc_refresh_queue)",
+        )
+        .fetch_one(self.pool())
+        .await?;
+
+        Ok(IndexerCounts {
+            total_cells: row.0,
+            live_cells: row.1,
+            pending_ckb_cells: row.2,
+            transitions: row.3,
+            observed_outpoints: row.4,
+            open_anomalies: row.5,
+            refresh_queue_depth: row.6,
+        })
+    }
+
+    /// Balances across a set of Bitcoin outpoints, grouped by asset.
+    ///
+    /// `include_pending = false` excludes cells whose bound UTXO has already been
+    /// spent on Bitcoin: that is the conservative view an application wants before
+    /// treating a balance as spendable.
+    pub async fn asset_balances_for_outpoints(
+        &self,
+        txids: &[Vec<u8>],
+        vouts: &[i32],
+        include_pending: bool,
+    ) -> Result<Vec<AssetBalanceRow>> {
+        Ok(sqlx::query_as::<Postgres, AssetBalanceRow>(
+            "SELECT type_hash,
+                    asset_kind,
+                    COUNT(*)                     AS cell_count,
+                    SUM(capacity)::numeric       AS total_capacity,
+                    SUM(COALESCE(udt_amount, 0)) AS total_amount
+               FROM rgbpp_cell_status
+              WHERE (btc_txid, btc_vout) IN (SELECT * FROM UNNEST($1::bytea[], $2::int[]))
+                AND status = ANY(CASE WHEN $3 THEN ARRAY['live', 'pending_ckb'] ELSE ARRAY['live'] END)
+              GROUP BY type_hash, asset_kind
+              ORDER BY asset_kind, type_hash",
+        )
+        .bind(txids)
+        .bind(vouts)
+        .bind(include_pending)
+        .fetch_all(self.pool())
+        .await?)
+    }
+}
+
+impl Store {
+    /// Open a sweep run, returning its id.
+    pub async fn start_sweep_run(&self) -> Result<i64> {
+        let (id,): (i64,) =
+            sqlx::query_as("INSERT INTO sweep_runs DEFAULT VALUES RETURNING id")
+                .fetch_one(self.pool())
+                .await?;
+        Ok(id)
+    }
+
+    pub async fn finish_sweep_run(
+        &self,
+        id: i64,
+        outpoints_checked: i64,
+        status_changed: i64,
+        anomalies_found: i64,
+        error: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE sweep_runs
+                SET finished_at = now(), outpoints_checked = $2, status_changed = $3,
+                    anomalies_found = $4, status = $5, error = $6
+              WHERE id = $1",
+        )
+        .bind(id)
+        .bind(outpoints_checked)
+        .bind(status_changed)
+        .bind(anomalies_found)
+        .bind(if error.is_some() { "failed" } else { "completed" })
+        .bind(error)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn last_sweep_run(&self) -> Result<Option<(i64, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, i64, i64, String)>> {
+        Ok(sqlx::query_as(
+            "SELECT id, started_at, finished_at, outpoints_checked, anomalies_found, status
+               FROM sweep_runs ORDER BY started_at DESC LIMIT 1",
+        )
+        .fetch_optional(self.pool())
+        .await?)
+    }
+}

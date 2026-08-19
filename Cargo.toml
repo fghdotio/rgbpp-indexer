@@ -1,0 +1,58 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/types",
+    "crates/ckb",
+    "crates/btc",
+    "crates/store",
+    "crates/indexer",
+    "crates/api",
+    "crates/node",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+
+[workspace.dependencies]
+rgbpp-types = { path = "crates/types" }
+rgbpp-ckb = { path = "crates/ckb" }
+rgbpp-btc = { path = "crates/btc" }
+rgbpp-store = { path = "crates/store" }
+rgbpp-indexer = { path = "crates/indexer" }
+rgbpp-api = { path = "crates/api" }
+
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
+bigdecimal = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "chrono",
+    "json",
+    "bigdecimal",
+    "macros",
+    "migrate",
+] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

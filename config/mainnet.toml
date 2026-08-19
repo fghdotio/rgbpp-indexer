@@ -1,0 +1,115 @@
+# RGB++ indexer — CKB mainnet / Bitcoin mainnet.
+#
+# ⚠ VERIFY THE SCRIPT SECTION BEFORE RUNNING.
+#
+# Deployed code hashes are a property of the deployment you intend to index, not of
+# this software. An indexer pointed at the wrong code hash starts cleanly, reports
+# healthy, and indexes nothing — so these values are configuration, never constants
+# baked into the binary. Cross-check them against the RGB++ deployment your
+# application stack uses (for example the script table shipped with `rgbpp-sdk`)
+# before pointing this at production.
+
+[general]
+network = "mainnet"
+
+[database]
+url = "postgres://rgbpp:rgbpp@localhost:5432/rgbpp"
+max_connections = 16
+auto_migrate = true
+
+[ckb]
+rpc_url = "https://mainnet.ckb.dev/rpc"
+# The rich indexer usually rides along with the node. Point this elsewhere if you
+# run `ckb-indexer` separately.
+# indexer_rpc_url = "https://mainnet.ckb.dev/indexer"
+
+# Scanning before RGB++ existed is wasted work. Set this to the block where the
+# protocol went live on the network you are indexing.
+start_block = 11_800_000
+
+# Stay this far behind the tip. Everything below the line is treated as settled,
+# which is what lets this version skip rollback entirely. The window it creates is
+# covered by the Bitcoin-driven on-demand path, not by indexing closer to the tip.
+reorg_lag = 24
+
+batch_blocks = 500
+page_limit = 200
+poll_interval_secs = 5
+request_timeout_secs = 30
+
+# Retained for the future rollback design (docs/reorg.md), which needs sparse
+# ancestry to find a common ancestor. Nothing else reads these today.
+header_retention = 20_000
+
+[btc]
+# `esplora` covers mempool.space, blockstream/electrs and self-hosted electrs.
+# Switch to `blockbook` by changing these two lines and nothing else.
+source = "esplora"
+base_url = "https://mempool.space/api"
+# source = "blockbook"
+# base_url = "https://btc1.trezor.io"
+
+request_timeout_secs = 20
+max_concurrency = 8
+min_request_interval_ms = 50
+observation_ttl_secs = 60
+confirmations_for_final = 6
+
+[protocol.rgbpp_lock]
+code_hash = "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936"
+hash_type = "type"
+
+[protocol.btc_time_lock]
+code_hash = "0x70d64497a075bd651e98ac030455ea200637ee325a12ad08aff03f1a117e5a62"
+hash_type = "type"
+
+# Type scripts the indexer can label. Unknown type scripts are still indexed — they
+# are reported as `asset_kind = "unknown"` with their raw type script attached — so
+# this list only affects labelling and fungible-amount decoding.
+[[assets.xudt]]
+code_hash = "0x50bd8d6680b8b9cf98b73f3c08faf8b2a21914311954118ad6609be6e78a1b95"
+hash_type = "data1"
+
+[[assets.sudt]]
+code_hash = "0x5e7a36a77e68eecc013dfa2fe6a23f3b6c344b04005808694ae6dd45eea4cfd5"
+hash_type = "type"
+
+# [[assets.spore]]
+# code_hash = "0x..."
+# hash_type = "data1"
+
+[reconcile]
+enabled = true
+max_outpoints_per_request = 200
+queue_interval_secs = 3
+queue_batch_size = 100
+max_attempts = 5
+
+[sweep]
+enabled = true
+interval_secs = 86_400
+batch_size = 500
+misspend_grace_confirmations = 6
+# Misspend detection needs a meaningful CKB index: "no transition exists" and "not
+# indexed yet" are indistinguishable otherwise. Detection is skipped while the
+# scanner is further behind its target than this.
+require_synced_within_blocks = 1_000
+
+[verify]
+# Cross-check the commitment computed from each CKB transaction against the one
+# published in its Bitcoin `OP_RETURN`. The encoding is pinned by regression tests
+# built from real on-chain transactions; a mismatch records an anomaly and never
+# drops an indexed fact. Set to false to stop the verifier making Bitcoin requests.
+commitments = true
+batch_size = 100
+
+[log]
+# One summary line per window while catching up, instead of one per scan round.
+progress_interval_secs = 15
+# Periodic operational one-liner: heights, counts, queue depth. 0 disables it.
+heartbeat_interval_secs = 300
+
+[api]
+bind = "0.0.0.0:8080"
+default_page_size = 100
+max_page_size = 1000
