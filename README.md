@@ -272,6 +272,7 @@ The knobs that matter most:
 | `GET /v1/rgbpp/cells/by-btc-utxo/{txid}/{vout}` | `?refresh=true`, `?include_spent=true` |
 | `GET /v1/rgbpp/cells/by-btc-txid/{txid}` | every cell bound to any output |
 | `GET /v1/rgbpp/cells/by-ckb-out-point/{tx_hash}/{index}` | |
+| `GET /v1/rgbpp/activity/by-btc-address/{address}` | RGB++ history, newest first; keyset `?cursor=`, `?limit=` |
 | `GET /v1/rgbpp/transitions` · `/{ckb_tx_hash}` | |
 | `POST /v1/rgbpp/refresh` | `{"outpoints": ["txid:vout"], "synchronous": true}` |
 | `GET /v1/anomalies` | `?kind=`, `?include_resolved=true` |

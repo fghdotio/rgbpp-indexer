@@ -43,6 +43,7 @@ impl Heartbeat {
     pub async fn emit(&self) -> crate::Result<()> {
         let state = self.store.get_stream_state(CKB_STREAM).await?;
         let counts = self.store.counts().await?;
+        let unlabelled = self.store.bindings_missing_address().await?;
 
         let indexed = state.as_ref().map(|s| s.last_block_number).unwrap_or(0);
         let tip = state.as_ref().and_then(|s| s.chain_tip_number);
@@ -61,6 +62,9 @@ impl Heartbeat {
             transitions = counts.transitions,
             queue = counts.refresh_queue_depth,
             anomalies = counts.open_anomalies,
+            // Non-zero means address history is still incomplete, which otherwise
+            // shows up only as a thin activity list.
+            unlabelled = unlabelled,
             "status"
         );
 

@@ -103,6 +103,14 @@ queue_interval_secs = 3
 queue_batch_size = 100
 max_attempts = 5
 
+# Resolve which Bitcoin address owns each binding, from the transaction that funded
+# it. Without this, address history covers only bindings the indexer happened to see
+# while they were still unspent -- which excludes everything already spent, and spent
+# bindings are what transaction history is made of.
+address_backfill = true
+address_backfill_interval_secs = 10
+address_backfill_batch = 50
+
 [sweep]
 enabled = true
 interval_secs = 86_400

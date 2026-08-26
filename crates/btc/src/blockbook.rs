@@ -186,6 +186,8 @@ struct BlockbookTx {
     block_hash: Option<String>,
     block_height: Option<i64>,
     block_time: Option<i64>,
+    #[serde(default)]
+    fees: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -309,6 +311,7 @@ impl BtcDataSource for BlockbookSource {
             confirmation,
             inputs,
             outputs,
+            fee: tx.fees.as_deref().map(parse_amount),
         }))
     }
 

@@ -245,6 +245,16 @@ impl Reconciler {
             return Ok(None);
         };
         let commitment = tx.commitment();
+
+        // This transaction's outputs are bindings for whatever RGB++ cells it funded,
+        // so labelling them here costs nothing: the fetch already happened. The
+        // backfill worker only has to deal with what this path never touches.
+        match crate::address_backfill::record_addresses(&self.store, txid, &tx).await {
+            Ok(n) if n > 0 => debug!(%txid, labelled = n, "labelled bindings from a fetched tx"),
+            Ok(_) => {}
+            Err(e) => warn!(%txid, error = %e, "cannot record binding addresses"),
+        }
+
         self.store
             .upsert_btc_tx(
                 &txid.to_display_vec(),
@@ -255,6 +265,7 @@ impl Reconciler {
                 commitment.as_ref().map(|c| &c[..]),
                 tx.inputs.len() as i32,
                 tx.outputs.len() as i32,
+                tx.fee.map(|f| f as i64),
                 self.btc.name(),
             )
             .await?;

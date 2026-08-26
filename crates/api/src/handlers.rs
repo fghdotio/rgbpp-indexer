@@ -387,6 +387,38 @@ pub async fn transition_by_ckb_tx(
     Ok(Json(TransitionDto::from(row)))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ActivityQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// RGB++ history for a Bitcoin address, newest first.
+///
+/// Deliberately does not reconcile against the Bitcoin data source: history is
+/// settled, and the indexed range already lags the tip by `REORG_LAG` by design.
+/// A very recent transition appears here a few minutes after it confirms; use
+/// `/v1/rgbpp/transactions/{btc_txid}` to watch one in flight.
+pub async fn activity_by_btc_address(
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+    Query(query): Query<ActivityQuery>,
+) -> ApiResult<Json<AddressActivityDto>> {
+    let limit = state.page_size(query.limit);
+    let store = &state.engine.store;
+
+    let rows = store
+        .address_activity(&address, query.cursor.as_deref(), limit)
+        .await?;
+    let tx_hashes: Vec<Vec<u8>> = rows.iter().map(|r| r.ckb_tx_hash.clone()).collect();
+    let cells = store.address_activity_cells(&address, &tx_hashes).await?;
+    let unresolved = store.bindings_missing_address().await?;
+
+    Ok(Json(build_activity(
+        address, rows, cells, limit, unresolved,
+    )))
+}
+
 pub async fn anomalies(
     State(state): State<AppState>,
     Query(query): Query<AnomalyQuery>,

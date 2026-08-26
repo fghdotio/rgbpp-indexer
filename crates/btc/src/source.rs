@@ -44,6 +44,8 @@ pub struct BtcTxInfo {
     /// cells: an RGB++ transfer must spend the UTXOs its cells are bound to.
     pub inputs: Vec<BtcOutPoint>,
     pub outputs: Vec<BtcTxOutput>,
+    /// Fee in satoshis. `None` when the data source does not report one.
+    pub fee: Option<u64>,
 }
 
 impl BtcTxInfo {

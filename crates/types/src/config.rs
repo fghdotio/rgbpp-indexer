@@ -307,6 +307,27 @@ pub struct ReconcileConfig {
     /// Give up on a queued refresh after this many failures.
     #[serde(default = "default_max_attempts")]
     pub max_attempts: i32,
+
+    /// Resolve which Bitcoin address owns each RGB++ binding.
+    ///
+    /// Ownership comes from the transaction that funded the binding, which is
+    /// permanent and independent of when anyone happened to ask. Without it, address
+    /// history only covers bindings the indexer saw while they were still unspent.
+    #[serde(default = "default_true")]
+    pub address_backfill: bool,
+    /// Seconds between backfill passes.
+    #[serde(default = "default_backfill_interval")]
+    pub address_backfill_interval_secs: u64,
+    /// Funding transactions resolved per pass.
+    #[serde(default = "default_backfill_batch")]
+    pub address_backfill_batch: i64,
+}
+
+fn default_backfill_interval() -> u64 {
+    10
+}
+fn default_backfill_batch() -> i64 {
+    50
 }
 
 fn default_max_outpoints() -> usize {
@@ -330,6 +351,9 @@ impl Default for ReconcileConfig {
             queue_interval_secs: default_queue_interval_secs(),
             queue_batch_size: default_queue_batch(),
             max_attempts: default_max_attempts(),
+            address_backfill: true,
+            address_backfill_interval_secs: default_backfill_interval(),
+            address_backfill_batch: default_backfill_batch(),
         }
     }
 }

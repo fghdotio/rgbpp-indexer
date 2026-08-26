@@ -13,6 +13,7 @@
 //!   what will make it a pure deletion later instead of a reverse-accounting
 //!   exercise — see `docs/reorg.md`.
 
+pub mod activity;
 pub mod anomalies;
 pub mod blocks;
 pub mod btc;

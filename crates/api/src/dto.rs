@@ -314,3 +314,228 @@ mod tests {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Activity
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct ActivityBtcDto {
+    pub txid: String,
+    pub confirmed: bool,
+    pub block_height: Option<i32>,
+    pub block_hash: Option<String>,
+    pub block_time: Option<DateTime<Utc>>,
+    /// Satoshis. Absent when the transaction has not been observed yet, or when the
+    /// data source does not report a fee.
+    pub fee: Option<String>,
+}
+
+/// A cell an address gained or lost.
+#[derive(Debug, Serialize)]
+pub struct ActivityCellDto {
+    pub ckb_out_point: CkbOutPointDto,
+    pub btc_out_point: Option<BtcOutPointDto>,
+    pub asset_kind: String,
+    pub type_hash: Option<String>,
+    pub amount: Option<String>,
+    pub capacity: String,
+}
+
+/// Net change in one asset, from this address's point of view.
+///
+/// Computed here rather than left to the caller: every client would otherwise
+/// reimplement the same signed sum over received minus sent, and a history row that
+/// says "−100 TOKEN" is the whole point of the endpoint.
+#[derive(Debug, Serialize)]
+pub struct AssetDeltaDto {
+    pub asset_kind: String,
+    pub type_hash: Option<String>,
+    /// Signed decimal string. Absent for non-fungible assets.
+    pub amount: Option<String>,
+    pub capacity: String,
+    pub cell_delta: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityDirection {
+    /// Only gained cells.
+    In,
+    /// Only lost cells.
+    Out,
+    /// Both — an ordinary transfer that returns change, or a self-transfer.
+    Self_,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActivityEntryDto {
+    pub ckb_tx_hash: String,
+    pub block_number: i64,
+    pub tx_index: i32,
+    pub block_timestamp: Option<DateTime<Utc>>,
+    pub kind: String,
+    pub direction: ActivityDirection,
+    /// `None` when the transition has no resolved Bitcoin side — issuance, or a
+    /// transaction whose txid could not be derived from its outputs.
+    pub btc: Option<ActivityBtcDto>,
+    pub received: Vec<ActivityCellDto>,
+    pub sent: Vec<ActivityCellDto>,
+    pub deltas: Vec<AssetDeltaDto>,
+    /// Pass as `cursor` to continue after this entry.
+    pub cursor: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AddressActivityDto {
+    pub address: String,
+    pub entries: Vec<ActivityEntryDto>,
+    /// Absent when the page reached the end of the history.
+    pub next_cursor: Option<String>,
+    /// Bindings anywhere in the index whose owning address is still unresolved.
+    ///
+    /// Deliberately global, not per-address: a binding with no known owner cannot be
+    /// attributed to *this* address either, so a per-address count would always be
+    /// zero and would say nothing. Non-zero means the backfill is still running and
+    /// any history may be incomplete — better than presenting a partial list as the
+    /// whole story.
+    pub unresolved_bindings_total: i64,
+}
+
+/// Identity of an asset within a transition: its kind plus its type script hash.
+/// Plain capacity-only cells share the `None` hash, which is what groups them.
+type AssetKey = (String, Option<Vec<u8>>);
+
+/// One asset's signed movement within a single transition.
+#[derive(Default)]
+struct DeltaAccumulator {
+    amount: BigDecimal,
+    capacity: BigDecimal,
+    cell_delta: i64,
+}
+
+impl DeltaAccumulator {
+    fn apply(&mut self, cell: &rgbpp_store::models::ActivityCellRow, sign: i64) {
+        if let Some(amount) = cell.udt_amount.as_ref() {
+            self.amount += amount * BigDecimal::from(sign);
+        }
+        self.capacity += BigDecimal::from(cell.capacity * sign);
+        self.cell_delta += sign;
+    }
+}
+
+/// Assemble a page from the two row sets the store returns.
+pub fn build_activity(
+    address: String,
+    rows: Vec<rgbpp_store::models::ActivityRow>,
+    cells: Vec<rgbpp_store::models::ActivityCellRow>,
+    page_size: i64,
+    unresolved_bindings_total: i64,
+) -> AddressActivityDto {
+    use std::collections::HashMap;
+
+    let mut by_tx: HashMap<Vec<u8>, (Vec<ActivityCellDto>, Vec<ActivityCellDto>)> = HashMap::new();
+    let mut deltas: HashMap<Vec<u8>, HashMap<AssetKey, DeltaAccumulator>> = HashMap::new();
+
+    for cell in cells {
+        let received = cell.role == "received";
+        let sign = if received { 1i64 } else { -1i64 };
+
+        deltas
+            .entry(cell.tx_hash.clone())
+            .or_default()
+            .entry((cell.asset_kind.clone(), cell.type_hash.clone()))
+            .or_default()
+            .apply(&cell, sign);
+
+        let dto = ActivityCellDto {
+            ckb_out_point: CkbOutPointDto {
+                tx_hash: hex0x(&cell.cell_tx_hash),
+                index: cell.output_index as u32,
+            },
+            btc_out_point: cell.btc_vout.map(|vout| BtcOutPointDto {
+                txid: hex::encode(&cell.btc_txid),
+                vout: vout as u32,
+            }),
+            asset_kind: cell.asset_kind.clone(),
+            type_hash: cell.type_hash.as_deref().map(hex0x),
+            amount: decimal_string(&cell.udt_amount),
+            capacity: cell.capacity.to_string(),
+        };
+
+        let slot = by_tx.entry(cell.tx_hash).or_default();
+        if received {
+            slot.0.push(dto);
+        } else {
+            slot.1.push(dto);
+        }
+    }
+
+    let reached_end = (rows.len() as i64) < page_size;
+    let next_cursor = if reached_end {
+        None
+    } else {
+        rows.last().map(|row| row.cursor())
+    };
+
+    let entries = rows
+        .into_iter()
+        .map(|row| {
+            let (received, sent) = by_tx.remove(&row.ckb_tx_hash).unwrap_or_default();
+            let direction = match (received.is_empty(), sent.is_empty()) {
+                (false, true) => ActivityDirection::In,
+                (true, false) => ActivityDirection::Out,
+                _ => ActivityDirection::Self_,
+            };
+
+            let mut asset_deltas: Vec<AssetDeltaDto> = deltas
+                .remove(&row.ckb_tx_hash)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|((asset_kind, type_hash), delta)| {
+                    let fungible = matches!(asset_kind.as_str(), "xudt" | "sudt");
+                    AssetDeltaDto {
+                        asset_kind,
+                        type_hash: type_hash.as_deref().map(hex0x),
+                        amount: fungible.then(|| plain_decimal(&delta.amount)),
+                        capacity: plain_decimal(&delta.capacity),
+                        cell_delta: delta.cell_delta,
+                    }
+                })
+                .collect();
+            asset_deltas.sort_by(|a, b| {
+                a.asset_kind
+                    .cmp(&b.asset_kind)
+                    .then(a.type_hash.cmp(&b.type_hash))
+            });
+
+            ActivityEntryDto {
+                cursor: row.cursor(),
+                ckb_tx_hash: hex0x(&row.ckb_tx_hash),
+                block_number: row.block_number,
+                tx_index: row.tx_index,
+                block_timestamp: row.block_timestamp,
+                kind: row.kind,
+                direction,
+                btc: row.btc_txid.as_deref().map(|txid| ActivityBtcDto {
+                    txid: hex::encode(txid),
+                    confirmed: row.btc_block_height.is_some(),
+                    block_height: row.btc_block_height,
+                    block_hash: row.btc_block_hash.as_deref().map(hex::encode),
+                    block_time: row.btc_block_time,
+                    fee: row.btc_fee.map(|f| f.to_string()),
+                }),
+                received,
+                sent,
+                deltas: asset_deltas,
+            }
+        })
+        .collect();
+
+    AddressActivityDto {
+        address,
+        entries,
+        next_cursor,
+        unresolved_bindings_total,
+    }
+}

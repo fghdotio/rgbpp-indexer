@@ -114,6 +114,8 @@ struct EsploraVout {
 #[derive(Debug, Deserialize)]
 struct EsploraTx {
     txid: String,
+    #[serde(default)]
+    fee: Option<u64>,
     vin: Vec<EsploraVin>,
     vout: Vec<EsploraVout>,
     status: EsploraStatus,
@@ -218,6 +220,7 @@ impl BtcDataSource for EsploraSource {
             confirmation,
             inputs,
             outputs,
+            fee: tx.fee,
         }))
     }
 

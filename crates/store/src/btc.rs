@@ -125,12 +125,14 @@ impl Store {
         commitment: Option<&[u8]>,
         input_count: i32,
         output_count: i32,
+        fee: Option<i64>,
         source: &str,
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO btc_txs (txid, block_height, block_hash, block_time, commitment,
-                                  input_count, output_count, source, observed_at, invalidated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), NULL)
+                                  input_count, output_count, fee, source, observed_at,
+                                  invalidated_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), NULL)
              ON CONFLICT (txid) DO UPDATE SET
                 block_height   = EXCLUDED.block_height,
                 block_hash     = EXCLUDED.block_hash,
@@ -138,6 +140,8 @@ impl Store {
                 commitment     = EXCLUDED.commitment,
                 input_count    = EXCLUDED.input_count,
                 output_count   = EXCLUDED.output_count,
+                -- Never downgrade a known fee to NULL: not every source reports one.
+                fee            = COALESCE(EXCLUDED.fee, btc_txs.fee),
                 source         = EXCLUDED.source,
                 observed_at    = now(),
                 invalidated_at = NULL",
@@ -149,6 +153,7 @@ impl Store {
         .bind(commitment)
         .bind(input_count)
         .bind(output_count)
+        .bind(fee)
         .bind(source)
         .execute(self.pool())
         .await?;
@@ -157,6 +162,91 @@ impl Store {
 }
 
 impl Store {
+    /// Record binding ownership from the transaction that funded it.
+    ///
+    /// A cell bound to `(txid, vout)` is owned by whoever controls that output, so
+    /// the funding transaction is the authoritative source — and unlike an address's
+    /// live UTXO listing it is permanent, so a binding spent years ago is still
+    /// attributable. `outputs` is `(vout, address)` for the funding transaction.
+    ///
+    /// Only outputs that actually carry an RGB++ cell are stored: a funding
+    /// transaction usually has change and payment outputs that mean nothing here.
+    pub async fn record_binding_addresses(
+        &self,
+        txid: &[u8],
+        outputs: &[(i32, String)],
+    ) -> Result<u64> {
+        if outputs.is_empty() {
+            return Ok(0);
+        }
+        let vouts: Vec<i32> = outputs.iter().map(|(v, _)| *v).collect();
+        let addresses: Vec<String> = outputs.iter().map(|(_, a)| a.clone()).collect();
+
+        let result = sqlx::query(
+            "INSERT INTO btc_outpoints (txid, vout, status, address, source)
+             SELECT $1, u.v, 'unknown', u.a, 'funding-tx'
+               FROM UNNEST($2::int[], $3::text[]) AS u(v, a)
+              WHERE EXISTS (
+                    SELECT 1 FROM rgbpp_cells c
+                     WHERE c.btc_txid = $1 AND c.btc_vout = u.v
+              )
+             -- Only the address: this says nothing about spend status, so it must not
+             -- disturb the observation or its freshness.
+             ON CONFLICT (txid, vout) DO UPDATE SET address = EXCLUDED.address",
+        )
+        .bind(txid)
+        .bind(&vouts)
+        .bind(&addresses)
+        .execute(self.pool())
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Funding transactions of bindings whose owning address is still unknown.
+    ///
+    /// Grouped by transaction, because one RGB++ transaction typically funds several
+    /// bindings across its outputs — resolving it costs one request and fills them
+    /// all. `after` walks the set in txid order so a pass makes progress even when
+    /// some transactions cannot be resolved.
+    pub async fn funding_txids_missing_address(
+        &self,
+        after: Option<&[u8]>,
+        limit: i64,
+    ) -> Result<Vec<Vec<u8>>> {
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "SELECT DISTINCT c.btc_txid
+               FROM rgbpp_cells c
+               LEFT JOIN btc_outpoints o
+                      ON o.txid = c.btc_txid AND o.vout = c.btc_vout
+              WHERE c.btc_vout IS NOT NULL
+                AND (o.txid IS NULL OR o.address IS NULL)
+                AND ($1::bytea IS NULL OR c.btc_txid > $1::bytea)
+              ORDER BY c.btc_txid
+              LIMIT $2",
+        )
+        .bind(after)
+        .bind(limit)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows.into_iter().map(|(t,)| t).collect())
+    }
+
+    /// How many bindings still have no owning address. Reported by the heartbeat so
+    /// an incomplete backfill is visible rather than showing up as a thin history.
+    pub async fn bindings_missing_address(&self) -> Result<i64> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*)
+               FROM rgbpp_cells c
+               LEFT JOIN btc_outpoints o
+                      ON o.txid = c.btc_txid AND o.vout = c.btc_vout
+              WHERE c.btc_vout IS NOT NULL
+                AND (o.txid IS NULL OR o.address IS NULL)",
+        )
+        .fetch_one(self.pool())
+        .await?;
+        Ok(count)
+    }
+
     /// Bound outpoints the indexer currently believes are live for an address.
     ///
     /// "Believes" is the operative word: this is the previous answer, and diffing it

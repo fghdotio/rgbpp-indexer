@@ -352,3 +352,55 @@ pub fn udt_amount_to_decimal(amount: u128) -> Result<BigDecimal> {
     BigDecimal::from_str(&amount.to_string())
         .map_err(|e| StoreError::mapping(format!("u128 -> NUMERIC: {e}")))
 }
+
+// ---------------------------------------------------------------------------
+// Activity
+// ---------------------------------------------------------------------------
+
+/// One RGB++ state transition that touched an address's holdings, joined with the
+/// Bitcoin transaction that authorised it.
+#[derive(Clone, Debug, FromRow)]
+pub struct ActivityRow {
+    pub ckb_tx_hash: Vec<u8>,
+    pub block_number: i64,
+    pub tx_index: i32,
+    pub block_timestamp: Option<DateTime<Utc>>,
+    pub kind: String,
+    pub btc_txid: Option<Vec<u8>>,
+    /// Left-joined from `btc_txs`: absent until that transaction has been observed.
+    pub btc_block_height: Option<i32>,
+    pub btc_block_hash: Option<Vec<u8>>,
+    pub btc_block_time: Option<DateTime<Utc>>,
+    pub btc_fee: Option<i64>,
+}
+
+impl ActivityRow {
+    /// Keyset cursor. Ordering is `(block_number, tx_index)` because a block can hold
+    /// several RGB++ transitions and a block number alone would drop or repeat some.
+    pub fn cursor(&self) -> String {
+        format!("{}:{}", self.block_number, self.tx_index)
+    }
+}
+
+/// A cell an address gained or lost in a transition.
+#[derive(Clone, Debug, FromRow)]
+pub struct ActivityCellRow {
+    /// The transition this row belongs to.
+    pub tx_hash: Vec<u8>,
+    /// `received` when the transition created the cell, `sent` when it consumed it.
+    pub role: String,
+    pub cell_tx_hash: Vec<u8>,
+    pub output_index: i32,
+    pub btc_txid: Vec<u8>,
+    pub btc_vout: Option<i32>,
+    pub asset_kind: String,
+    pub type_hash: Option<Vec<u8>>,
+    pub udt_amount: Option<BigDecimal>,
+    pub capacity: i64,
+}
+
+/// Parse a `block_number:tx_index` cursor.
+pub fn parse_activity_cursor(cursor: &str) -> Option<(i64, i32)> {
+    let (block, index) = cursor.split_once(':')?;
+    Some((block.parse().ok()?, index.parse().ok()?))
+}

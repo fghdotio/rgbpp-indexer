@@ -544,6 +544,176 @@ async fn address_and_sweep_work_lists_are_derived_from_cells() {
     assert_eq!(counts.live_cells, 2);
 }
 
+/// Ownership must come from the funding transaction, not from an address's live UTXO
+/// listing. The listing can only ever label bindings that are still unspent when
+/// someone asks, so a binding spent before first contact would be permanently
+/// unattributable — and spent bindings are exactly what transaction history is made
+/// of.
+#[tokio::test]
+async fn binding_addresses_come_from_the_funding_transaction() {
+    let Some(store) = store_for("binding_addresses").await else {
+        return;
+    };
+    store.init_stream(CKB_STREAM, 100).await.unwrap();
+
+    let mut b = batch(100);
+    b.cells.push(rgbpp_cell(1, 0, 0x11, 0, 100)); // funded by tx 0x11, vout 0
+    b.cells.push(rgbpp_cell(1, 1, 0x11, 2, 100)); // same funding tx, vout 2
+    b.cells.push(rgbpp_cell(1, 2, 0x22, 0, 100)); // a different funding tx
+    store.apply_batch(&b).await.unwrap();
+
+    assert_eq!(store.bindings_missing_address().await.unwrap(), 3);
+
+    // One funding transaction labels every bound output it created. Outputs with no
+    // RGB++ cell (vout 1 here) are not stored: a funding transaction is mostly change
+    // and payment outputs that mean nothing to this indexer.
+    let labelled = store
+        .record_binding_addresses(
+            &txid(0x11),
+            &[
+                (0, "bc1qalice".to_string()),
+                (1, "bc1qchange".to_string()),
+                (2, "bc1qalice".to_string()),
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(labelled, 2, "only the two outputs carrying cells");
+    assert_eq!(store.bindings_missing_address().await.unwrap(), 1);
+
+    assert!(store
+        .get_observation(&txid(0x11), 1)
+        .await
+        .unwrap()
+        .is_none());
+
+    let believed = store
+        .live_bound_outpoints_for_address("bc1qalice")
+        .await
+        .unwrap();
+    assert_eq!(believed, vec![(txid(0x11), 0), (txid(0x11), 2)]);
+
+    // The whole point: a binding stays attributable after it is spent, because the
+    // funding transaction does not change.
+    let mut spend = batch(101);
+    spend.spends.push(CellSpend {
+        ckb_tx_hash: hash(1),
+        output_index: 0,
+        consumed_block_number: 101,
+        consumed_block_hash: hash(101),
+        consumed_tx_hash: hash(2),
+        consumed_tx_index: 0,
+        consumed_input_index: 0,
+    });
+    store.apply_batch(&spend).await.unwrap();
+
+    let row = store
+        .get_observation(&txid(0x11), 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.address.as_deref(), Some("bc1qalice"));
+}
+
+/// Labelling says nothing about whether an outpoint is spent, so it must not disturb
+/// the observation or make a stale one look fresh.
+#[tokio::test]
+async fn labelling_does_not_disturb_the_spend_observation() {
+    let Some(store) = store_for("labelling_isolation").await else {
+        return;
+    };
+    store.init_stream(CKB_STREAM, 100).await.unwrap();
+
+    let mut b = batch(100);
+    b.cells.push(rgbpp_cell(1, 0, 0x33, 0, 100));
+    store.apply_batch(&b).await.unwrap();
+
+    let spender = BtcTxid::from_display_bytes([0x99; 32]);
+    store
+        .upsert_observation(
+            &txid(0x33),
+            0,
+            OutpointSpendStatus::SpentConfirmed {
+                spender,
+                height: 800_000,
+            },
+            None,
+            "esplora",
+        )
+        .await
+        .unwrap();
+    let before = store
+        .get_observation(&txid(0x33), 0)
+        .await
+        .unwrap()
+        .unwrap();
+
+    store
+        .record_binding_addresses(&txid(0x33), &[(0, "bc1qbob".to_string())])
+        .await
+        .unwrap();
+
+    let after = store
+        .get_observation(&txid(0x33), 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.address.as_deref(), Some("bc1qbob"));
+    assert_eq!(
+        after.spend_status().unwrap(),
+        OutpointSpendStatus::SpentConfirmed {
+            spender,
+            height: 800_000
+        }
+    );
+    assert_eq!(after.observed_at, before.observed_at, "freshness untouched");
+    assert_eq!(
+        after.source, "esplora",
+        "the observation source is not overwritten"
+    );
+}
+
+/// The worker walks funding transactions, not bindings, so one request fills every
+/// binding that transaction created.
+#[tokio::test]
+async fn the_backfill_work_list_is_grouped_and_shrinks() {
+    let Some(store) = store_for("backfill_worklist").await else {
+        return;
+    };
+    store.init_stream(CKB_STREAM, 100).await.unwrap();
+
+    let mut b = batch(100);
+    b.cells.push(rgbpp_cell(1, 0, 0x11, 0, 100));
+    b.cells.push(rgbpp_cell(1, 1, 0x11, 1, 100)); // same funding tx
+    b.cells.push(rgbpp_cell(1, 2, 0x22, 0, 100));
+    b.cells.push(rgbpp_cell(1, 3, 0x33, 0, 100));
+    store.apply_batch(&b).await.unwrap();
+
+    let pending = store.funding_txids_missing_address(None, 10).await.unwrap();
+    assert_eq!(
+        pending,
+        vec![txid(0x11), txid(0x22), txid(0x33)],
+        "four bindings, three requests"
+    );
+
+    // The cursor lets a pass step past a transaction that cannot be resolved.
+    let after_first = store
+        .funding_txids_missing_address(Some(&txid(0x11)), 10)
+        .await
+        .unwrap();
+    assert_eq!(after_first, vec![txid(0x22), txid(0x33)]);
+
+    // Resolved transactions drop out on their own, which is what makes the in-memory
+    // cursor safe to lose on restart.
+    store
+        .record_binding_addresses(&txid(0x11), &[(0, "a".into()), (1, "a".into())])
+        .await
+        .unwrap();
+    let pending = store.funding_txids_missing_address(None, 10).await.unwrap();
+    assert_eq!(pending, vec![txid(0x22), txid(0x33)]);
+    assert_eq!(store.bindings_missing_address().await.unwrap(), 2);
+}
+
 #[tokio::test]
 async fn balances_are_computed_on_read() {
     let Some(store) = store_for("balances").await else {
@@ -647,6 +817,168 @@ async fn transitions_and_commitment_status_round_trip() {
         1
     );
     assert_eq!(store.recent_transitions(10).await.unwrap().len(), 1);
+}
+
+/// Activity is the join `address -> bindings -> cells -> transitions`. The half that
+/// matters most is the outgoing one: a transfer shows up because the address *lost* a
+/// cell, and that cell's binding is spent by then.
+#[tokio::test]
+async fn activity_covers_both_sides_of_a_transfer() {
+    let Some(store) = store_for("activity").await else {
+        return;
+    };
+    store.init_stream(CKB_STREAM, 100).await.unwrap();
+
+    // Block 100: Alice receives a cell bound to 0x11:0.
+    let mut b = batch(100);
+    b.cells.push(rgbpp_cell(1, 0, 0x11, 0, 100));
+    b.transitions.push(NewTransition {
+        ckb_tx_hash: hash(1),
+        block_number: 100,
+        block_hash: hash(100),
+        tx_index: 0,
+        block_timestamp: Some(Utc::now()),
+        kind: TransitionKind::Issuance,
+        btc_txid: Some(txid(0x11)),
+        input_cell_count: 0,
+        output_cell_count: 1,
+        expected_commitment: None,
+    });
+    store.apply_batch(&b).await.unwrap();
+
+    // Block 101: she spends it. The new cell belongs to someone else.
+    let mut b = batch(101);
+    b.cells.push(rgbpp_cell(2, 0, 0x22, 0, 101));
+    b.spends.push(CellSpend {
+        ckb_tx_hash: hash(1),
+        output_index: 0,
+        consumed_block_number: 101,
+        consumed_block_hash: hash(101),
+        consumed_tx_hash: hash(2),
+        consumed_tx_index: 3,
+        consumed_input_index: 0,
+    });
+    b.transitions.push(NewTransition {
+        ckb_tx_hash: hash(2),
+        block_number: 101,
+        block_hash: hash(101),
+        tx_index: 3,
+        block_timestamp: Some(Utc::now()),
+        kind: TransitionKind::Transfer,
+        btc_txid: Some(txid(0x22)),
+        input_cell_count: 1,
+        output_cell_count: 1,
+        expected_commitment: None,
+    });
+    store.apply_batch(&b).await.unwrap();
+
+    // Ownership from the funding transaction. Note 0x11:0 is already spent by now --
+    // an address's live UTXO listing could never have labelled it.
+    store
+        .record_binding_addresses(&txid(0x11), &[(0, "bc1qalice".into())])
+        .await
+        .unwrap();
+    store
+        .record_binding_addresses(&txid(0x22), &[(0, "bc1qbob".into())])
+        .await
+        .unwrap();
+
+    let alice = store.address_activity("bc1qalice", None, 10).await.unwrap();
+    assert_eq!(alice.len(), 2, "the receive and the send");
+    assert_eq!(alice[0].block_number, 101, "newest first");
+    assert_eq!(alice[0].tx_index, 3);
+    assert_eq!(alice[1].block_number, 100);
+
+    let hashes: Vec<Vec<u8>> = alice.iter().map(|r| r.ckb_tx_hash.clone()).collect();
+    let cells = store
+        .address_activity_cells("bc1qalice", &hashes)
+        .await
+        .unwrap();
+    assert_eq!(cells.len(), 2);
+
+    let sent: Vec<_> = cells.iter().filter(|c| c.role == "sent").collect();
+    assert_eq!(sent.len(), 1, "the outgoing half is the point");
+    assert_eq!(sent[0].tx_hash, hash(2));
+    assert_eq!(sent[0].cell_tx_hash, hash(1));
+
+    let received: Vec<_> = cells.iter().filter(|c| c.role == "received").collect();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].tx_hash, hash(1));
+
+    // Bob sees only his side.
+    let bob = store.address_activity("bc1qbob", None, 10).await.unwrap();
+    assert_eq!(bob.len(), 1);
+    assert_eq!(bob[0].block_number, 101);
+
+    // An address nobody has labelled has no history rather than everyone's.
+    assert!(store
+        .address_activity("bc1qnobody", None, 10)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+/// Keyset pagination, because an offset drifts as the scanner appends and would
+/// silently repeat or skip entries mid-scroll.
+#[tokio::test]
+async fn activity_pages_by_keyset_within_a_block() {
+    let Some(store) = store_for("activity_paging").await else {
+        return;
+    };
+    store.init_stream(CKB_STREAM, 100).await.unwrap();
+
+    // Three transitions in one block: a block number alone cannot separate them.
+    let mut b = batch(100);
+    for (i, tx_index) in [(1u8, 0i32), (2, 1), (3, 2)] {
+        b.cells.push(rgbpp_cell(i, 0, 0x11, i as i32, 100));
+        b.transitions.push(NewTransition {
+            ckb_tx_hash: hash(i),
+            block_number: 100,
+            block_hash: hash(100),
+            tx_index,
+            block_timestamp: None,
+            kind: TransitionKind::Issuance,
+            btc_txid: Some(txid(0x11)),
+            input_cell_count: 0,
+            output_cell_count: 1,
+            expected_commitment: None,
+        });
+    }
+    store.apply_batch(&b).await.unwrap();
+    store
+        .record_binding_addresses(
+            &txid(0x11),
+            &[
+                (1, "bc1qalice".into()),
+                (2, "bc1qalice".into()),
+                (3, "bc1qalice".into()),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let page1 = store.address_activity("bc1qalice", None, 2).await.unwrap();
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1[0].tx_index, 2);
+    assert_eq!(page1[1].tx_index, 1);
+
+    let page2 = store
+        .address_activity("bc1qalice", Some(&page1[1].cursor()), 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        page2.len(),
+        1,
+        "no repeats, no gaps across a block boundary"
+    );
+    assert_eq!(page2[0].tx_index, 0);
+
+    // A malformed cursor falls back to the first page rather than erroring out.
+    let fallback = store
+        .address_activity("bc1qalice", Some("not-a-cursor"), 10)
+        .await
+        .unwrap();
+    assert_eq!(fallback.len(), 3);
 }
 
 #[tokio::test]

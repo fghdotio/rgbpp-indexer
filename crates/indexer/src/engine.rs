@@ -12,6 +12,7 @@ use rgbpp_types::config::Config;
 use tokio::task::JoinHandle;
 use tracing::info;
 
+use crate::address_backfill::AddressBackfill;
 use crate::error::Result;
 use crate::heartbeat::Heartbeat;
 use crate::reconcile::Reconciler;
@@ -103,6 +104,14 @@ impl Engine {
             ));
         }
 
+        if self.config.reconcile.enabled && self.config.reconcile.address_backfill {
+            enabled.push("address-backfill");
+            handles.push(tokio::spawn(
+                AddressBackfill::new(self.store.clone(), self.btc.clone(), self.config.clone())
+                    .run(shutdown.subscribe()),
+            ));
+        }
+
         if self.config.log.heartbeat_interval().is_some() {
             enabled.push("heartbeat");
             handles.push(tokio::spawn(
@@ -162,6 +171,10 @@ impl Engine {
 
     pub fn scanner(&self) -> CkbScanner {
         CkbScanner::new(self.store.clone(), self.ckb.clone(), self.config.clone())
+    }
+
+    pub fn address_backfill(&self) -> AddressBackfill {
+        AddressBackfill::new(self.store.clone(), self.btc.clone(), self.config.clone())
     }
 
     pub fn verifier(&self) -> CommitmentVerifier {
