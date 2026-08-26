@@ -84,7 +84,7 @@ pub fn encode_out_point(out_point: &CkbOutPoint) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ckb::{H256, ScriptHashType};
+    use crate::ckb::{ScriptHashType, H256};
 
     #[test]
     fn script_table_layout_is_canonical() {
@@ -122,13 +122,16 @@ mod tests {
 // Only tables need a decoder: BTC time lock args are a molecule table, and its
 // first field is a nested `Script`.
 
-use crate::ckb::{Bytes as CkbBytes, H256, ScriptHashType};
+use crate::ckb::{Bytes as CkbBytes, ScriptHashType, H256};
 use crate::error::{Error, Result};
 
 /// Split a molecule `table` into its field slices, validating the header.
 pub fn read_table_fields(data: &[u8]) -> Result<Vec<&[u8]>> {
     if data.len() < 4 {
-        return Err(Error::malformed("molecule table", "shorter than the size header"));
+        return Err(Error::malformed(
+            "molecule table",
+            "shorter than the size header",
+        ));
     }
     let full_size = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
     if full_size != data.len() {
@@ -182,7 +185,10 @@ pub fn read_bytes(data: &[u8]) -> Result<&[u8]> {
     if 4 + len != data.len() {
         return Err(Error::malformed(
             "molecule Bytes",
-            format!("length prefix {len} does not match payload {}", data.len() - 4),
+            format!(
+                "length prefix {len} does not match payload {}",
+                data.len() - 4
+            ),
         ));
     }
     Ok(&data[4..])
@@ -198,7 +204,10 @@ pub fn decode_script(data: &[u8]) -> Result<Script> {
     }
     let code_hash = H256::from_slice(fields[0])?;
     if fields[1].len() != 1 {
-        return Err(Error::malformed("molecule Script", "hash_type is not one byte"));
+        return Err(Error::malformed(
+            "molecule Script",
+            "hash_type is not one byte",
+        ));
     }
     let hash_type = match fields[1][0] {
         0 => ScriptHashType::Data,

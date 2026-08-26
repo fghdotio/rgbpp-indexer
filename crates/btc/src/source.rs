@@ -129,7 +129,10 @@ pub async fn observe_many(
 
     let mut by_txid: BTreeMap<BtcTxid, Vec<u32>> = BTreeMap::new();
     for outpoint in outpoints {
-        by_txid.entry(outpoint.txid).or_default().push(outpoint.vout);
+        by_txid
+            .entry(outpoint.txid)
+            .or_default()
+            .push(outpoint.vout);
     }
 
     let groups: Vec<(BtcTxid, Vec<u32>)> = by_txid.into_iter().collect();

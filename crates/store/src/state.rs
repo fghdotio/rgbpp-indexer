@@ -48,14 +48,12 @@ impl Store {
     }
 
     pub async fn set_stream_error(&self, stream: &str, error: Option<&str>) -> Result<()> {
-        sqlx::query(
-            "UPDATE indexer_state SET last_error = $2, updated_at = $3 WHERE stream = $1",
-        )
-        .bind(stream)
-        .bind(error)
-        .bind(Utc::now())
-        .execute(self.pool())
-        .await?;
+        sqlx::query("UPDATE indexer_state SET last_error = $2, updated_at = $3 WHERE stream = $1")
+            .bind(stream)
+            .bind(error)
+            .bind(Utc::now())
+            .execute(self.pool())
+            .await?;
         Ok(())
     }
 

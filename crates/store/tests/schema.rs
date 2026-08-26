@@ -199,7 +199,11 @@ async fn cell_status_is_derived_from_both_chains() {
         .unwrap();
     assert!(!changed);
     // ... and the address survives an observation that did not carry one.
-    let observation = store.get_observation(&txid(0x77), 3).await.unwrap().unwrap();
+    let observation = store
+        .get_observation(&txid(0x77), 3)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(observation.address.as_deref(), Some("bc1qexample"));
 
     // The CKB transition lands: the cell is now unambiguously spent.
@@ -256,10 +260,28 @@ async fn the_view_and_the_rust_status_model_agree() {
     let cases = [
         (0x11u8, false, OutpointSpendStatus::Unknown),
         (0x22, false, OutpointSpendStatus::Unspent),
-        (0x33, false, OutpointSpendStatus::SpentUnconfirmed { spender }),
-        (0x44, false, OutpointSpendStatus::SpentConfirmed { spender, height: 800_000 }),
+        (
+            0x33,
+            false,
+            OutpointSpendStatus::SpentUnconfirmed { spender },
+        ),
+        (
+            0x44,
+            false,
+            OutpointSpendStatus::SpentConfirmed {
+                spender,
+                height: 800_000,
+            },
+        ),
         (0x55, true, OutpointSpendStatus::Unspent),
-        (0x66, true, OutpointSpendStatus::SpentConfirmed { spender, height: 800_000 }),
+        (
+            0x66,
+            true,
+            OutpointSpendStatus::SpentConfirmed {
+                spender,
+                height: 800_000,
+            },
+        ),
     ];
 
     let mut b = batch(100);
@@ -345,7 +367,11 @@ async fn refresh_queue_claims_backs_off_and_completes() {
         .await
         .unwrap();
     store
-        .enqueue_refresh_many(&[(txid(2), 1), (txid(3), 0)], "sweep", rgbpp_store::queue::priority::SWEEP)
+        .enqueue_refresh_many(
+            &[(txid(2), 1), (txid(3), 0)],
+            "sweep",
+            rgbpp_store::queue::priority::SWEEP,
+        )
         .await
         .unwrap();
     assert_eq!(store.refresh_queue_depth().await.unwrap(), 3);
@@ -361,9 +387,16 @@ async fn refresh_queue_claims_backs_off_and_completes() {
     store.complete_refresh(&txid(1), 0).await.unwrap();
     assert_eq!(store.refresh_queue_depth().await.unwrap(), 2);
 
-    store.fail_refresh(&txid(2), 1, "upstream timeout").await.unwrap();
+    store
+        .fail_refresh(&txid(2), 1, "upstream timeout")
+        .await
+        .unwrap();
     let dropped = store.drop_exhausted_refreshes(1).await.unwrap();
-    assert_eq!(dropped.len(), 2, "both remaining entries hit the attempt cap");
+    assert_eq!(
+        dropped.len(),
+        2,
+        "both remaining entries hit the attempt cap"
+    );
     assert_eq!(store.refresh_queue_depth().await.unwrap(), 0);
 }
 
@@ -394,8 +427,15 @@ async fn anomalies_deduplicate_and_reopen() {
     assert_eq!(store.open_anomaly_count().await.unwrap(), 1);
 
     assert!(store.resolve_anomaly(&key).await.unwrap());
-    assert!(!store.resolve_anomaly(&key).await.unwrap(), "already resolved");
-    assert!(store.list_anomalies(None, false, 10).await.unwrap().is_empty());
+    assert!(
+        !store.resolve_anomaly(&key).await.unwrap(),
+        "already resolved"
+    );
+    assert!(store
+        .list_anomalies(None, false, 10)
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(store.list_anomalies(None, true, 10).await.unwrap().len(), 1);
 
     // A finding that comes back reopens rather than staying silently closed.
@@ -411,11 +451,17 @@ async fn anomalies_deduplicate_and_reopen() {
         )
         .await
         .unwrap();
-    assert_eq!(store.list_anomalies(None, false, 10).await.unwrap().len(), 1);
+    assert_eq!(
+        store.list_anomalies(None, false, 10).await.unwrap().len(),
+        1
+    );
 
     // Resolving by outpoint is what happens when the CKB transition finally lands.
     assert_eq!(
-        store.resolve_anomalies_for_outpoint(&txid(1), 0).await.unwrap(),
+        store
+            .resolve_anomalies_for_outpoint(&txid(1), 0)
+            .await
+            .unwrap(),
         1
     );
 }
@@ -442,7 +488,10 @@ async fn address_and_sweep_work_lists_are_derived_from_cells() {
         )
         .await
         .unwrap();
-    assert_eq!(recorded, 1, "only the outpoint with a bound cell is recorded");
+    assert_eq!(
+        recorded, 1,
+        "only the outpoint with a bound cell is recorded"
+    );
 
     let believed = store
         .live_bound_outpoints_for_address("bc1qalice")
@@ -518,7 +567,10 @@ async fn balances_are_computed_on_read() {
         .unwrap();
     assert_eq!(balances.len(), 1, "one asset");
     assert_eq!(balances[0].cell_count, 3);
-    assert_eq!(balances[0].total_amount.as_ref().unwrap().to_string(), "3000");
+    assert_eq!(
+        balances[0].total_amount.as_ref().unwrap().to_string(),
+        "3000"
+    );
     assert_eq!(
         balances[0].total_capacity.as_ref().unwrap().to_string(),
         (3 * 100 * 100_000_000i64).to_string()
@@ -543,7 +595,10 @@ async fn balances_are_computed_on_read() {
         .await
         .unwrap();
     assert_eq!(conservative[0].cell_count, 2);
-    assert_eq!(conservative[0].total_amount.as_ref().unwrap().to_string(), "2000");
+    assert_eq!(
+        conservative[0].total_amount.as_ref().unwrap().to_string(),
+        "2000"
+    );
 
     let optimistic = store
         .asset_balances_for_outpoints(&txids, &vouts, true)
@@ -583,7 +638,14 @@ async fn transitions_and_commitment_status_round_trip() {
 
     let row = store.transition_by_ckb_tx(&hash(1)).await.unwrap().unwrap();
     assert_eq!(row.commitment_status, "match");
-    assert_eq!(store.transitions_by_btc_txid(&txid(0x55)).await.unwrap().len(), 1);
+    assert_eq!(
+        store
+            .transitions_by_btc_txid(&txid(0x55))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     assert_eq!(store.recent_transitions(10).await.unwrap().len(), 1);
 }
 
@@ -615,7 +677,14 @@ async fn block_headers_keep_their_activity_flag_and_prune() {
     let mut checkpoint = block_record(100);
     checkpoint.has_rgbpp_activity = false;
     store.upsert_block(&checkpoint).await.unwrap();
-    assert!(store.get_block(100).await.unwrap().unwrap().has_rgbpp_activity);
+    assert!(
+        store
+            .get_block(100)
+            .await
+            .unwrap()
+            .unwrap()
+            .has_rgbpp_activity
+    );
 
     for number in [101, 102, 103] {
         store.upsert_block(&block_record(number)).await.unwrap();

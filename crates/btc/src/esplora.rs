@@ -306,9 +306,12 @@ mod tests {
 
     #[test]
     fn base_url_trailing_slash_does_not_double_up() {
-        let source =
-            EsploraSource::new("https://mempool.space/api/", Duration::from_secs(1), Throttle::unlimited())
-                .unwrap();
+        let source = EsploraSource::new(
+            "https://mempool.space/api/",
+            Duration::from_secs(1),
+            Throttle::unlimited(),
+        )
+        .unwrap();
         assert_eq!(source.url("/tx/abc"), "https://mempool.space/api/tx/abc");
         assert_eq!(source.url("tx/abc"), "https://mempool.space/api/tx/abc");
     }

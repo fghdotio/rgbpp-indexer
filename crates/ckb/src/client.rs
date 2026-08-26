@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use rgbpp_types::ckb::{H256, Script};
-use serde_json::{Value, json};
+use rgbpp_types::ckb::{Script, H256};
+use serde_json::{json, Value};
 use tracing::debug;
 
 use crate::error::{CkbError, Result};
@@ -22,7 +22,12 @@ pub struct CkbClient {
 }
 
 impl CkbClient {
-    pub fn new(node_url: &str, indexer_url: &str, timeout: Duration, page_limit: u32) -> Result<Self> {
+    pub fn new(
+        node_url: &str,
+        indexer_url: &str,
+        timeout: Duration,
+        page_limit: u32,
+    ) -> Result<Self> {
         Ok(CkbClient {
             node: JsonRpcClient::new(node_url, timeout)?,
             indexer: JsonRpcClient::new(indexer_url, timeout)?,
@@ -146,17 +151,10 @@ impl CkbClient {
     /// This is the point-lookup path: it reads the rich indexer's current view, not
     /// the lagged range the scanner has processed, so it can confirm that a cell for
     /// a given Bitcoin outpoint exists before the scanner reaches that block.
-    pub async fn get_cells(
-        &self,
-        search_key: &SearchKey,
-        limit: u32,
-    ) -> Result<Vec<CellRecord>> {
+    pub async fn get_cells(&self, search_key: &SearchKey, limit: u32) -> Result<Vec<CellRecord>> {
         let page: Pagination<CellRecord> = self
             .indexer
-            .call(
-                "get_cells",
-                json!([search_key, Order::Asc, Uint32(limit)]),
-            )
+            .call("get_cells", json!([search_key, Order::Asc, Uint32(limit)]))
             .await?;
         Ok(page.objects)
     }

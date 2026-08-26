@@ -9,9 +9,9 @@
 //! or before a database was rebuilt. Those are fetched from the node and backfilled,
 //! so the spend has something to attach to.
 
-use rgbpp_types::ckb::{Bytes, CellOutput, H256, Script, ScriptHashType};
-use rgbpp_types::protocol::{LockBinding, LockKind, ProtocolScripts};
 use rgbpp_store::models::CellRow;
+use rgbpp_types::ckb::{Bytes, CellOutput, Script, ScriptHashType, H256};
+use rgbpp_types::protocol::{LockBinding, LockKind, ProtocolScripts};
 
 use crate::error::{IndexerError, Result};
 
@@ -54,7 +54,11 @@ pub fn cell_output_from_row(protocol: &ProtocolScripts, row: &CellRow) -> Result
         LockKind::Rgbpp => protocol.rgbpp_lock,
         LockKind::BtcTime => protocol.btc_time_lock,
     };
-    let lock = Script::new(script_id.code_hash, script_id.hash_type, row.lock_args.clone());
+    let lock = Script::new(
+        script_id.code_hash,
+        script_id.hash_type,
+        row.lock_args.clone(),
+    );
 
     if lock.calc_hash().to_vec() != row.lock_hash {
         return Err(IndexerError::inconsistent(format!(

@@ -268,8 +268,9 @@ impl BtcDataSource for BlockbookSource {
     }
 
     async fn block_hash_at(&self, height: u32) -> Result<Option<BtcBlockHash>> {
-        let Some(index): Option<BlockbookBlockIndex> =
-            self.get_opt(&format!("api/v2/block-index/{height}")).await?
+        let Some(index): Option<BlockbookBlockIndex> = self
+            .get_opt(&format!("api/v2/block-index/{height}"))
+            .await?
         else {
             return Ok(None);
         };
@@ -277,7 +278,8 @@ impl BtcDataSource for BlockbookSource {
     }
 
     async fn transaction(&self, txid: &BtcTxid) -> Result<Option<BtcTxInfo>> {
-        let Some(tx): Option<BlockbookTx> = self.get_opt(&format!("api/v2/tx/{txid}")).await? else {
+        let Some(tx): Option<BlockbookTx> = self.get_opt(&format!("api/v2/tx/{txid}")).await?
+        else {
             return Ok(None);
         };
         let confirmation = tx.block_ref();
@@ -334,7 +336,8 @@ impl BtcDataSource for BlockbookSource {
     }
 
     async fn tx_outspends(&self, txid: &BtcTxid) -> Result<Option<Vec<OutpointSpendStatus>>> {
-        let Some(tx): Option<BlockbookTx> = self.get_opt(&format!("api/v2/tx/{txid}")).await? else {
+        let Some(tx): Option<BlockbookTx> = self.get_opt(&format!("api/v2/tx/{txid}")).await?
+        else {
             return Ok(None);
         };
         let spent_vouts: Vec<(u32, Option<String>)> = tx

@@ -12,7 +12,8 @@ const TRANSITION_COLUMNS: &str = "ckb_tx_hash, block_number, block_hash, tx_inde
 
 impl Store {
     pub async fn transition_by_ckb_tx(&self, ckb_tx_hash: &[u8]) -> Result<Option<TransitionRow>> {
-        let sql = format!("SELECT {TRANSITION_COLUMNS} FROM rgbpp_transitions WHERE ckb_tx_hash = $1");
+        let sql =
+            format!("SELECT {TRANSITION_COLUMNS} FROM rgbpp_transitions WHERE ckb_tx_hash = $1");
         Ok(sqlx::query_as::<Postgres, TransitionRow>(&sql)
             .bind(ckb_tx_hash)
             .fetch_optional(self.pool())

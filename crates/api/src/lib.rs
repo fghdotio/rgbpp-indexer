@@ -84,9 +84,9 @@ pub async fn serve(
     bind: &str,
     mut shutdown: rgbpp_indexer::Shutdown,
 ) -> std::io::Result<()> {
-    let addr: SocketAddr = bind
-        .parse()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{bind}: {e}")))?;
+    let addr: SocketAddr = bind.parse().map_err(|e| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{bind}: {e}"))
+    })?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "api listening");
 

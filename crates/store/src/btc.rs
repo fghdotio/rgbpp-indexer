@@ -20,7 +20,9 @@ const OBSERVATION_COLUMNS: &str =
 
 impl Store {
     pub async fn get_observation(&self, txid: &[u8], vout: i32) -> Result<Option<ObservationRow>> {
-        let sql = format!("SELECT {OBSERVATION_COLUMNS} FROM btc_outpoints WHERE txid = $1 AND vout = $2");
+        let sql = format!(
+            "SELECT {OBSERVATION_COLUMNS} FROM btc_outpoints WHERE txid = $1 AND vout = $2"
+        );
         Ok(sqlx::query_as::<Postgres, ObservationRow>(&sql)
             .bind(txid)
             .bind(vout)
@@ -152,7 +154,6 @@ impl Store {
         .await?;
         Ok(())
     }
-
 }
 
 impl Store {

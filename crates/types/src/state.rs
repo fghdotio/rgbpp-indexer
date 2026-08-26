@@ -26,15 +26,21 @@ pub enum OutpointSpendStatus {
     Unknown,
     Unspent,
     /// Spent by a transaction still in the mempool.
-    SpentUnconfirmed { spender: BtcTxid },
-    SpentConfirmed { spender: BtcTxid, height: u32 },
+    SpentUnconfirmed {
+        spender: BtcTxid,
+    },
+    SpentConfirmed {
+        spender: BtcTxid,
+        height: u32,
+    },
 }
 
 impl OutpointSpendStatus {
     pub fn is_spent(&self) -> bool {
         matches!(
             self,
-            OutpointSpendStatus::SpentUnconfirmed { .. } | OutpointSpendStatus::SpentConfirmed { .. }
+            OutpointSpendStatus::SpentUnconfirmed { .. }
+                | OutpointSpendStatus::SpentConfirmed { .. }
         )
     }
 
@@ -189,7 +195,10 @@ mod tests {
     #[test]
     fn btc_spend_without_ckb_is_the_pending_window() {
         assert_eq!(
-            derive_cell_status(false, OutpointSpendStatus::SpentUnconfirmed { spender: txid() }),
+            derive_cell_status(
+                false,
+                OutpointSpendStatus::SpentUnconfirmed { spender: txid() }
+            ),
             CellStatus::PendingCkb
         );
         assert_eq!(

@@ -11,12 +11,12 @@
 
 use std::sync::Arc;
 
-use rgbpp_types::bitcoin::BtcTxid;
-use rgbpp_types::config::Config;
-use rgbpp_types::state::{AnomalyKind, TransitionKind};
 use rgbpp_store::anomalies::dedup_key;
 use rgbpp_store::models::CommitmentStatus;
 use rgbpp_store::Store;
+use rgbpp_types::bitcoin::BtcTxid;
+use rgbpp_types::config::Config;
+use rgbpp_types::state::{AnomalyKind, TransitionKind};
 use serde::Serialize;
 use tracing::{info, warn};
 

@@ -17,7 +17,12 @@ use tracing_subscriber::EnvFilter;
 )]
 struct Cli {
     /// Path to the TOML configuration file.
-    #[arg(short, long, env = "RGBPP_CONFIG", default_value = "config/default.toml")]
+    #[arg(
+        short,
+        long,
+        env = "RGBPP_CONFIG",
+        default_value = "config/default.toml"
+    )]
     config: PathBuf,
 
     /// Log format: `text` or `json`.
@@ -63,7 +68,10 @@ async fn main() -> Result<()> {
             // deployment can be verified without starting anything.
             println!("{}", toml::to_string_pretty(&config)?);
             println!("# rgbpp lock:    {}", config.protocol.rgbpp_lock.code_hash);
-            println!("# btc time lock: {}", config.protocol.btc_time_lock.code_hash);
+            println!(
+                "# btc time lock: {}",
+                config.protocol.btc_time_lock.code_hash
+            );
             Ok(())
         }
         Command::Migrate => {
@@ -193,7 +201,8 @@ fn parse_outpoint(s: &str) -> Result<rgbpp_types::BtcOutPoint> {
         .with_context(|| format!("expected `txid:vout`, got `{s}`"))?;
     Ok(rgbpp_types::BtcOutPoint::new(
         rgbpp_types::BtcTxid::from_hex(txid)?,
-        vout.parse().with_context(|| format!("bad output index `{vout}`"))?,
+        vout.parse()
+            .with_context(|| format!("bad output index `{vout}`"))?,
     ))
 }
 

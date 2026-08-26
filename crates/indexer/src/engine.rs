@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use rgbpp_btc::BtcDataSource;
 use rgbpp_ckb::CkbClient;
-use rgbpp_types::config::Config;
 use rgbpp_store::Store;
+use rgbpp_types::config::Config;
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -97,7 +97,9 @@ impl Engine {
         if self.config.reconcile.enabled {
             enabled.push("refresh-queue");
             handles.push(tokio::spawn(
-                self.reconciler.clone().run_queue_worker(shutdown.subscribe()),
+                self.reconciler
+                    .clone()
+                    .run_queue_worker(shutdown.subscribe()),
             ));
         }
 

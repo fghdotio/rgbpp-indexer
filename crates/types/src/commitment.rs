@@ -99,11 +99,17 @@ pub fn op_return_payload(script_pubkey: &[u8]) -> Option<Vec<u8>> {
         }
         OP_PUSHDATA2 => {
             let bytes = script.get(1..3)?;
-            (u16::from_le_bytes(bytes.try_into().ok()?) as usize, &script[3..])
+            (
+                u16::from_le_bytes(bytes.try_into().ok()?) as usize,
+                &script[3..],
+            )
         }
         OP_PUSHDATA4 => {
             let bytes = script.get(1..5)?;
-            (u32::from_le_bytes(bytes.try_into().ok()?) as usize, &script[5..])
+            (
+                u32::from_le_bytes(bytes.try_into().ok()?) as usize,
+                &script[5..],
+            )
         }
         _ => return None,
     };
@@ -141,7 +147,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ckb::{H256, Script, ScriptHashType};
+    use crate::ckb::{Script, ScriptHashType, H256};
 
     #[test]
     fn preimage_layout_has_the_expected_header() {

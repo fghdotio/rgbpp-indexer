@@ -107,16 +107,16 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Json<StatusDto>>
         btc_source: engine.btc.name().to_string(),
         ckb,
         counts,
-        last_sweep: sweep.map(|(id, started_at, finished_at, checked, anomalies, status)| {
-            SweepStatusDto {
+        last_sweep: sweep.map(
+            |(id, started_at, finished_at, checked, anomalies, status)| SweepStatusDto {
                 id,
                 started_at,
                 finished_at,
                 outpoints_checked: checked,
                 anomalies_found: anomalies,
                 status,
-            }
-        }),
+            },
+        ),
     }))
 }
 
@@ -130,7 +130,11 @@ pub async fn cells_by_btc_utxo(
     let outpoint = BtcOutPoint::new(txid, vout);
 
     if query.refresh {
-        state.engine.reconciler.refresh_outpoints(&[outpoint]).await?;
+        state
+            .engine
+            .reconciler
+            .refresh_outpoints(&[outpoint])
+            .await?;
     }
 
     let rows = state
@@ -203,7 +207,10 @@ pub async fn assets_by_btc_address(
 
     // The answer itself is the set of cells bound to the address's current UTXOs.
     let utxos = engine.btc.address_utxos(&address).await?;
-    let txids: Vec<Vec<u8>> = utxos.iter().map(|u| u.outpoint.txid.to_display_vec()).collect();
+    let txids: Vec<Vec<u8>> = utxos
+        .iter()
+        .map(|u| u.outpoint.txid.to_display_vec())
+        .collect();
     let vouts: Vec<i32> = utxos.iter().map(|u| u.outpoint.vout as i32).collect();
 
     let rows = engine
@@ -237,7 +244,10 @@ pub async fn balance_by_btc_address(
     }
 
     let utxos = engine.btc.address_utxos(&address).await?;
-    let txids: Vec<Vec<u8>> = utxos.iter().map(|u| u.outpoint.txid.to_display_vec()).collect();
+    let txids: Vec<Vec<u8>> = utxos
+        .iter()
+        .map(|u| u.outpoint.txid.to_display_vec())
+        .collect();
     let vouts: Vec<i32> = utxos.iter().map(|u| u.outpoint.vout as i32).collect();
 
     let rows = engine
@@ -277,7 +287,10 @@ pub async fn transaction_status(
         .store
         .transitions_by_btc_txid(&txid.to_display_vec())
         .await?;
-    let cells = engine.store.cells_by_btc_txid(&txid.to_display_vec()).await?;
+    let cells = engine
+        .store
+        .cells_by_btc_txid(&txid.to_display_vec())
+        .await?;
 
     Ok(Json(TransactionStatusResponse {
         btc_txid: txid.to_hex(),
@@ -319,7 +332,11 @@ pub async fn refresh_outpoints(
         .collect::<ApiResult<Vec<_>>>()?;
 
     if request.synchronous {
-        let refreshed = state.engine.reconciler.refresh_outpoints(&outpoints).await?;
+        let refreshed = state
+            .engine
+            .reconciler
+            .refresh_outpoints(&outpoints)
+            .await?;
         Ok(Json(RefreshResponse {
             requested: outpoints.len(),
             refreshed,
@@ -333,7 +350,11 @@ pub async fn refresh_outpoints(
         let queued = state
             .engine
             .store
-            .enqueue_refresh_many(&pairs, "api-request", rgbpp_store::queue::priority::ON_DEMAND)
+            .enqueue_refresh_many(
+                &pairs,
+                "api-request",
+                rgbpp_store::queue::priority::ON_DEMAND,
+            )
             .await?;
         Ok(Json(RefreshResponse {
             requested: outpoints.len(),
@@ -402,9 +423,9 @@ mod tests {
         assert_eq!(outpoint.vout, 2);
         assert!(parse_outpoint("nope").is_err());
         assert!(parse_outpoint("4a5e:2").is_err());
-        assert!(
-            parse_outpoint("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:x")
-                .is_err()
-        );
+        assert!(parse_outpoint(
+            "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:x"
+        )
+        .is_err());
     }
 }

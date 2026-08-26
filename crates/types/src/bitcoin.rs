@@ -182,10 +182,9 @@ mod tests {
 
     #[test]
     fn display_and_internal_orders_are_mirrors() {
-        let txid = BtcTxid::from_hex(
-            "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
-        )
-        .unwrap();
+        let txid =
+            BtcTxid::from_hex("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")
+                .unwrap();
         let internal = txid.to_internal_bytes();
         assert_eq!(internal[0], 0x3b);
         assert_eq!(BtcTxid::from_internal_bytes(&internal).unwrap(), txid);

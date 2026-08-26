@@ -13,15 +13,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use rgbpp_ckb::CkbClient;
 use futures::stream::{self, StreamExt};
 use rgbpp_ckb::types::{IoType, RpcHeader, TransactionWithStatus, TxRecord};
-use rgbpp_types::ckb::{CellOutput, CkbOutPoint, H256, Script};
-use rgbpp_types::config::Config;
-use rgbpp_types::protocol::{LockBinding, LockKind, ProtocolScripts};
+use rgbpp_ckb::CkbClient;
 use rgbpp_store::models::{BlockRecord, IndexBatch, NewCell};
 use rgbpp_store::state::CKB_STREAM;
 use rgbpp_store::Store;
+use rgbpp_types::ckb::{CellOutput, CkbOutPoint, Script, H256};
+use rgbpp_types::config::Config;
+use rgbpp_types::protocol::{LockBinding, LockKind, ProtocolScripts};
 use tracing::{debug, error, info, warn};
 
 use crate::error::{IndexerError, Result};
@@ -101,7 +101,10 @@ impl CkbScanner {
                 }
                 Err(e) => {
                     error!(error = %e, "ckb scan round failed");
-                    let _ = self.store.set_stream_error(CKB_STREAM, Some(&e.to_string())).await;
+                    let _ = self
+                        .store
+                        .set_stream_error(CKB_STREAM, Some(&e.to_string()))
+                        .await;
                 }
             }
 
@@ -329,9 +332,13 @@ impl CkbScanner {
                     record.tx_hash, matched.io_index
                 )));
             };
-            let out_point = CkbOutPoint::new(input.previous_output.tx_hash, input.previous_output.index.0);
+            let out_point =
+                CkbOutPoint::new(input.previous_output.tx_hash, input.previous_output.index.0);
 
-            match self.resolve_input(out_point, matched.io_index, batch, round).await? {
+            match self
+                .resolve_input(out_point, matched.io_index, batch, round)
+                .await?
+            {
                 Some(resolved) => resolved_inputs.push(resolved),
                 None => warn!(
                     tx = %record.tx_hash,
@@ -381,7 +388,11 @@ impl CkbScanner {
             .iter()
             .find(|c| c.ckb_tx_hash == tx_hash_bytes && c.output_index == out_point.index as i32)
         {
-            return Ok(Some(self.resolved_from_new_cell(pending, out_point, input_index)?));
+            return Ok(Some(self.resolved_from_new_cell(
+                pending,
+                out_point,
+                input_index,
+            )?));
         }
 
         if let Some(row) = self
@@ -400,7 +411,8 @@ impl CkbScanner {
 
         // The gap case: a cell created outside the indexed range. Fetch and backfill
         // it so the spend has something to attach to.
-        self.backfill_input(out_point, input_index, batch, round).await
+        self.backfill_input(out_point, input_index, batch, round)
+            .await
     }
 
     fn resolved_from_new_cell(
@@ -413,8 +425,16 @@ impl CkbScanner {
             LockKind::Rgbpp => self.config.protocol.rgbpp_lock,
             LockKind::BtcTime => self.config.protocol.btc_time_lock,
         };
-        let lock = Script::new(script_id.code_hash, script_id.hash_type, cell.lock_args.clone());
-        let type_ = cell.type_script.as_ref().map(resolve::script_from_json).transpose()?;
+        let lock = Script::new(
+            script_id.code_hash,
+            script_id.hash_type,
+            cell.lock_args.clone(),
+        );
+        let type_ = cell
+            .type_script
+            .as_ref()
+            .map(resolve::script_from_json)
+            .transpose()?;
         Ok(ResolvedInput {
             input_index,
             out_point,
@@ -547,7 +567,8 @@ impl CkbScanner {
         &self,
         state: &rgbpp_store::models::StreamState,
     ) -> Result<()> {
-        let (Some(stored_hash), true) = (state.last_block_hash.as_ref(), state.last_block_number > 0)
+        let (Some(stored_hash), true) =
+            (state.last_block_hash.as_ref(), state.last_block_number > 0)
         else {
             return Ok(());
         };

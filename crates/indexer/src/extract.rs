@@ -7,13 +7,13 @@
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
+use rgbpp_store::models::{udt_amount_to_decimal, CellSpend, NewCell, NewTransition};
 use rgbpp_types::asset::{self, AssetKind, AssetScripts};
 use rgbpp_types::bitcoin::BtcTxid;
-use rgbpp_types::ckb::{CellOutput, CkbOutPoint, H256, Script};
+use rgbpp_types::ckb::{CellOutput, CkbOutPoint, Script, H256};
 use rgbpp_types::commitment::CommitmentPreimage;
 use rgbpp_types::protocol::{self, LockBinding, LockKind, ProtocolScripts};
 use rgbpp_types::state::TransitionKind;
-use rgbpp_store::models::{CellSpend, NewCell, NewTransition, udt_amount_to_decimal};
 
 use crate::error::{IndexerError, Result};
 
@@ -412,10 +412,15 @@ mod tests {
     #[test]
     fn transition_kinds_cover_the_protocol_shapes() {
         let protocol = protocol();
-        let rgbpp_out = classify_outputs(&protocol, &[rgbpp_cell(&protocol, 0, 1)], &[vec![]]).unwrap();
-        let time_out = classify_outputs(&protocol, &[btc_time_cell(&protocol, 1)], &[vec![]]).unwrap();
+        let rgbpp_out =
+            classify_outputs(&protocol, &[rgbpp_cell(&protocol, 0, 1)], &[vec![]]).unwrap();
+        let time_out =
+            classify_outputs(&protocol, &[btc_time_cell(&protocol, 1)], &[vec![]]).unwrap();
 
-        assert_eq!(classify_transition(&[], &rgbpp_out), TransitionKind::Issuance);
+        assert_eq!(
+            classify_transition(&[], &rgbpp_out),
+            TransitionKind::Issuance
+        );
         assert_eq!(
             classify_transition(&[resolved(&protocol, LockKind::Rgbpp, 1)], &rgbpp_out),
             TransitionKind::Transfer

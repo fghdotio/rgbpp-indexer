@@ -20,8 +20,8 @@ pub mod throttle;
 
 pub use error::{BtcError, Result};
 pub use source::{
-    BtcBlockRef, BtcDataSource, BtcTip, BtcTxInfo, BtcTxOutput, BtcUtxo, OutpointObservation,
-    observe_many,
+    observe_many, BtcBlockRef, BtcDataSource, BtcTip, BtcTxInfo, BtcTxOutput, BtcUtxo,
+    OutpointObservation,
 };
 
 use std::sync::Arc;

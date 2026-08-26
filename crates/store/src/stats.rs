@@ -85,10 +85,9 @@ impl Store {
 impl Store {
     /// Open a sweep run, returning its id.
     pub async fn start_sweep_run(&self) -> Result<i64> {
-        let (id,): (i64,) =
-            sqlx::query_as("INSERT INTO sweep_runs DEFAULT VALUES RETURNING id")
-                .fetch_one(self.pool())
-                .await?;
+        let (id,): (i64,) = sqlx::query_as("INSERT INTO sweep_runs DEFAULT VALUES RETURNING id")
+            .fetch_one(self.pool())
+            .await?;
         Ok(id)
     }
 
@@ -110,14 +109,29 @@ impl Store {
         .bind(outpoints_checked)
         .bind(status_changed)
         .bind(anomalies_found)
-        .bind(if error.is_some() { "failed" } else { "completed" })
+        .bind(if error.is_some() {
+            "failed"
+        } else {
+            "completed"
+        })
         .bind(error)
         .execute(self.pool())
         .await?;
         Ok(())
     }
 
-    pub async fn last_sweep_run(&self) -> Result<Option<(i64, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, i64, i64, String)>> {
+    pub async fn last_sweep_run(
+        &self,
+    ) -> Result<
+        Option<(
+            i64,
+            chrono::DateTime<chrono::Utc>,
+            Option<chrono::DateTime<chrono::Utc>>,
+            i64,
+            i64,
+            String,
+        )>,
+    > {
         Ok(sqlx::query_as(
             "SELECT id, started_at, finished_at, outpoints_checked, anomalies_found, status
                FROM sweep_runs ORDER BY started_at DESC LIMIT 1",

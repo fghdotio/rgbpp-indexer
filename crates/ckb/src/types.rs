@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use rgbpp_types::ckb::{Bytes, H256, Script};
+use rgbpp_types::ckb::{Bytes, Script, H256};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 macro_rules! hex_uint {

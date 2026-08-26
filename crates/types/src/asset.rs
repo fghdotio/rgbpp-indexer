@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ckb::{H256, Script};
+use crate::ckb::{Script, H256};
 use crate::protocol::ScriptId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -94,7 +94,9 @@ pub fn parse_udt_amount(data: &[u8]) -> Option<u128> {
     if data.len() < 16 {
         return None;
     }
-    Some(u128::from_le_bytes(data[0..16].try_into().expect("checked length")))
+    Some(u128::from_le_bytes(
+        data[0..16].try_into().expect("checked length"),
+    ))
 }
 
 /// The identity used to group balances: the type script hash, or `None` for plain
@@ -118,10 +120,9 @@ mod tests {
 
     #[test]
     fn classification_falls_through_to_unknown() {
-        let code = H256::from_hex(
-            "0x1111111111111111111111111111111111111111111111111111111111111111",
-        )
-        .unwrap();
+        let code =
+            H256::from_hex("0x1111111111111111111111111111111111111111111111111111111111111111")
+                .unwrap();
         let scripts = AssetScripts {
             xudt: vec![ScriptId::new(code, ScriptHashType::Data1)],
             ..Default::default()

@@ -16,7 +16,7 @@ pub mod protocol;
 pub mod state;
 
 pub use bitcoin::{BtcOutPoint, BtcTxid};
-pub use ckb::{CellOutput, CkbOutPoint, H256, Script, ScriptHashType};
+pub use ckb::{CellOutput, CkbOutPoint, Script, ScriptHashType, H256};
 pub use error::{Error, Result};
 pub use protocol::{BtcTimeLockArgs, LockKind, RgbppLockArgs};
 pub use state::{CellStatus, OutpointSpendStatus, TransitionKind};

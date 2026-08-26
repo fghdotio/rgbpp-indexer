@@ -6,9 +6,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde::Serialize;
+use serde_json::{json, Value};
 use tracing::{debug, warn};
 
 use crate::error::{CkbError, Result};
@@ -44,8 +44,14 @@ impl JsonRpcClient {
         &self.url
     }
 
-    pub async fn call<P: Serialize, R: DeserializeOwned>(&self, method: &str, params: P) -> Result<R> {
-        let value = self.call_value(method, serde_json::to_value(params)?).await?;
+    pub async fn call<P: Serialize, R: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: P,
+    ) -> Result<R> {
+        let value = self
+            .call_value(method, serde_json::to_value(params)?)
+            .await?;
         serde_json::from_value(value).map_err(|e| CkbError::Payload {
             method: method.to_string(),
             reason: e.to_string(),

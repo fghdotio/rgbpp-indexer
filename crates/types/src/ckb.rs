@@ -257,10 +257,9 @@ mod tests {
 
     #[test]
     fn h256_roundtrip() {
-        let h = H256::from_hex(
-            "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936",
-        )
-        .unwrap();
+        let h =
+            H256::from_hex("0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936")
+                .unwrap();
         assert_eq!(
             h.to_hex(),
             "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936"

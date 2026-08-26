@@ -21,15 +21,15 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use rgbpp_btc::{BtcDataSource, BtcTxInfo};
-use rgbpp_ckb::CkbClient;
 use rgbpp_ckb::types::SearchKey;
+use rgbpp_ckb::CkbClient;
+use rgbpp_store::queue::priority;
+use rgbpp_store::Store;
 use rgbpp_types::bitcoin::{BtcOutPoint, BtcTxid};
 use rgbpp_types::ckb::{CkbOutPoint, Script};
 use rgbpp_types::config::Config;
 use rgbpp_types::protocol::RgbppLockArgs;
 use rgbpp_types::state::OutpointSpendStatus;
-use rgbpp_store::queue::priority;
-use rgbpp_store::Store;
 use serde::Serialize;
 use tracing::{debug, info, warn};
 
@@ -121,11 +121,16 @@ impl Reconciler {
     }
 
     /// Re-observe a set of outpoints and write the results.
-    pub async fn refresh_outpoints(&self, outpoints: &[BtcOutPoint]) -> Result<Vec<OutpointRefresh>> {
+    pub async fn refresh_outpoints(
+        &self,
+        outpoints: &[BtcOutPoint],
+    ) -> Result<Vec<OutpointRefresh>> {
         if outpoints.is_empty() {
             return Ok(Vec::new());
         }
-        let capped = &outpoints[..outpoints.len().min(self.config.reconcile.max_outpoints_per_request)];
+        let capped = &outpoints[..outpoints
+            .len()
+            .min(self.config.reconcile.max_outpoints_per_request)];
         if capped.len() < outpoints.len() {
             // Queue the overflow rather than dropping it: the caller gets a fast
             // answer now, and the rest is picked up by the drain worker.
@@ -139,7 +144,8 @@ impl Reconciler {
         }
 
         let observations =
-            rgbpp_btc::observe_many(self.btc.as_ref(), capped, self.config.btc.max_concurrency).await;
+            rgbpp_btc::observe_many(self.btc.as_ref(), capped, self.config.btc.max_concurrency)
+                .await;
 
         let mut out = Vec::with_capacity(observations.len());
         let mut failed = 0usize;
@@ -283,10 +289,7 @@ impl Reconciler {
         let believed_live = self.store.live_bound_outpoints_for_address(address).await?;
         let mut disappeared = Vec::new();
         for (txid, vout) in &believed_live {
-            let outpoint = BtcOutPoint::new(
-                BtcTxid::from_display_slice(txid)?,
-                *vout as u32,
-            );
+            let outpoint = BtcOutPoint::new(BtcTxid::from_display_slice(txid)?, *vout as u32);
             if !live_now.contains(&outpoint) {
                 disappeared.push(outpoint);
             }
@@ -363,7 +366,10 @@ impl Reconciler {
         let vout_count = (btc_tx.outputs.len() as u32).min(MAX_POINT_LOOKUP_VOUTS);
         let cells = self.point_lookup_cells(txid, vout_count).await?;
         if !cells.is_empty() {
-            let state = self.store.get_stream_state(rgbpp_store::state::CKB_STREAM).await?;
+            let state = self
+                .store
+                .get_stream_state(rgbpp_store::state::CKB_STREAM)
+                .await?;
             return Ok(TransitionResolution::CkbSeenAboveLag {
                 cells,
                 indexed_to: state.map(|s| s.last_block_number).unwrap_or_default(),
@@ -403,7 +409,10 @@ impl Reconciler {
             }
             .encode();
             let script = Script::new(lock.code_hash, lock.hash_type, args);
-            let records = self.ckb.get_cells(&SearchKey::lock_exact(script), 16).await?;
+            let records = self
+                .ckb
+                .get_cells(&SearchKey::lock_exact(script), 16)
+                .await?;
             for record in records {
                 found.push(CkbOutPoint::new(
                     record.out_point.tx_hash,

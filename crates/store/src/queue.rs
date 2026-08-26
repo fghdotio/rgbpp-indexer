@@ -111,14 +111,12 @@ impl Store {
     }
 
     pub async fn fail_refresh(&self, txid: &[u8], vout: i32, error: &str) -> Result<()> {
-        sqlx::query(
-            "UPDATE btc_refresh_queue SET last_error = $3 WHERE txid = $1 AND vout = $2",
-        )
-        .bind(txid)
-        .bind(vout)
-        .bind(error)
-        .execute(self.pool())
-        .await?;
+        sqlx::query("UPDATE btc_refresh_queue SET last_error = $3 WHERE txid = $1 AND vout = $2")
+            .bind(txid)
+            .bind(vout)
+            .bind(error)
+            .execute(self.pool())
+            .await?;
         Ok(())
     }
 

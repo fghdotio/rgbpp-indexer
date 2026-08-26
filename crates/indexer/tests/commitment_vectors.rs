@@ -12,7 +12,7 @@
 
 use rgbpp_ckb::types::RpcTransaction;
 use rgbpp_indexer::extract::{self, ResolvedInput};
-use rgbpp_types::ckb::{CellOutput, CkbOutPoint, H256, ScriptHashType};
+use rgbpp_types::ckb::{CellOutput, CkbOutPoint, ScriptHashType, H256};
 use rgbpp_types::protocol::{LockBinding, ProtocolScripts, ScriptId};
 use serde::Deserialize;
 
@@ -84,8 +84,8 @@ fn check(fixture_json: &str) {
         })
         .collect();
 
-    let computed = extract::expected_commitment(&resolved, &rgbpp_outputs)
-        .expect("commitment is computable");
+    let computed =
+        extract::expected_commitment(&resolved, &rgbpp_outputs).expect("commitment is computable");
     assert_eq!(
         hex::encode(computed),
         fixture.expected_commitment,
@@ -135,8 +135,8 @@ fn using_the_on_chain_txid_would_not_match() {
         .map(|o| (o.cell.clone(), o.data.clone()))
         .collect();
 
-    let naive = rgbpp_types::commitment::CommitmentPreimage::new(&inputs, &naive_outputs)
-        .commitment();
+    let naive =
+        rgbpp_types::commitment::CommitmentPreimage::new(&inputs, &naive_outputs).commitment();
     assert_ne!(hex::encode(naive), fixture.expected_commitment);
 }
 

@@ -13,7 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::bitcoin::{BtcOutPoint, BtcTxid};
-use crate::ckb::{H256, Script, ScriptHashType};
+use crate::ckb::{Script, ScriptHashType, H256};
 use crate::error::{Error, Result};
 use crate::molecule;
 
@@ -287,7 +287,10 @@ mod tests {
         };
         let zeroed = args_with_placeholder_txid(LockKind::Rgbpp, &args.encode()).unwrap();
         let parsed = RgbppLockArgs::parse(&zeroed).unwrap();
-        assert_eq!(parsed.out_index, 5, "the output index is part of the commitment");
+        assert_eq!(
+            parsed.out_index, 5,
+            "the output index is part of the commitment"
+        );
         assert_eq!(parsed.txid, BtcTxid::from_display_bytes([0u8; 32]));
 
         let time_args = BtcTimeLockArgs {

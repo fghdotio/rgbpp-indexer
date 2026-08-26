@@ -278,8 +278,7 @@ impl ObservationRow {
 
     /// Whether this observation is still fresh enough to answer from.
     pub fn is_fresh(&self, ttl_secs: i64, now: DateTime<Utc>) -> bool {
-        self.invalidated_at.is_none()
-            && (now - self.observed_at).num_seconds() < ttl_secs
+        self.invalidated_at.is_none() && (now - self.observed_at).num_seconds() < ttl_secs
     }
 }
 

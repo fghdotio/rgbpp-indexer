@@ -74,7 +74,8 @@ impl LogConfig {
     }
 
     pub fn heartbeat_interval(&self) -> Option<Duration> {
-        (self.heartbeat_interval_secs > 0).then(|| Duration::from_secs(self.heartbeat_interval_secs))
+        (self.heartbeat_interval_secs > 0)
+            .then(|| Duration::from_secs(self.heartbeat_interval_secs))
     }
 }
 
@@ -507,7 +508,11 @@ impl Config {
             apply_numeric("CKB_BATCH_BLOCKS", &v, &mut self.ckb.batch_blocks);
         }
         if let Some(v) = get("CKB_POLL_INTERVAL_SECS") {
-            apply_numeric("CKB_POLL_INTERVAL_SECS", &v, &mut self.ckb.poll_interval_secs);
+            apply_numeric(
+                "CKB_POLL_INTERVAL_SECS",
+                &v,
+                &mut self.ckb.poll_interval_secs,
+            );
         }
         if let Some(v) = get("BTC_MAX_CONCURRENCY") {
             apply_numeric("BTC_MAX_CONCURRENCY", &v, &mut self.btc.max_concurrency);
@@ -644,7 +649,10 @@ hash_type = "type"
 
         assert_eq!(config.ckb.rpc_url, "https://mainnet.ckb.dev/rpc");
         assert_eq!(config.ckb.reorg_lag, 48);
-        assert_eq!(config.ckb.start_block, 11_800_000, "underscores are tolerated");
+        assert_eq!(
+            config.ckb.start_block, 11_800_000,
+            "underscores are tolerated"
+        );
         assert_eq!(config.btc.source, BtcSourceKind::Blockbook);
     }
 
