@@ -1,13 +1,5 @@
-//! Reconstructing consumed cells.
-//!
-//! When a transaction spends an RGB++ cell, the indexer normally already holds that
-//! cell — it indexed the transaction that created it. Rebuilding the `CellOutput`
-//! from the stored row avoids an RPC round trip per input, which matters a great deal
-//! during initial sync.
-//!
-//! The fallback path exists for the genuine gap: a cell created before `start_block`,
-//! or before a database was rebuilt. Those are fetched from the node and backfilled,
-//! so the spend has something to attach to.
+//! Rebuilding consumed cells from stored rows, with an RPC fallback for cells created
+//! outside the indexed range.
 
 use rgbpp_store::models::CellRow;
 use rgbpp_types::ckb::{Bytes, CellOutput, Script, ScriptHashType, H256};
@@ -91,7 +83,7 @@ mod tests {
     use crate::extract::script_to_json;
 
     #[test]
-    fn script_json_round_trips() {
+    fn script_json() {
         let script = Script::new(
             H256::from_hex("0x5555555555555555555555555555555555555555555555555555555555555555")
                 .unwrap(),
@@ -103,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_args_round_trip() {
+    fn empty_args_json() {
         let script = Script::new(H256::ZERO, ScriptHashType::Type, vec![]);
         assert_eq!(script_from_json(&script_to_json(&script)).unwrap(), script);
     }

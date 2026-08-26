@@ -1,13 +1,9 @@
 //! Trezor Blockbook implementation.
 //!
-//! Blockbook exposes a different shape than Esplora, and one gap matters: a
-//! transaction's outputs carry a `spent` flag but **not** the spending transaction.
-//! Recovering the spender means walking the owning address's transaction history and
-//! finding the input that consumes the outpoint.
-//!
-//! That costs one extra request per address (not per outpoint), so
-//! [`BlockbookSource::tx_outspends`] resolves a whole transaction's outputs at once
-//! and is strongly preferred over per-outpoint lookups on this backend.
+//! One gap shapes this file: outputs carry a `spent` flag but not the spending
+//! transaction, so recovering the spender means walking the owning address's history.
+//! [`BlockbookSource::tx_outspends`] resolves a whole transaction at once and is
+//! strongly preferred over per-outpoint lookups here.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -399,7 +395,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tx_parses_with_omitted_zero_fields() {
+    fn omitted_zero_fields() {
         // Blockbook omits `vout` on an input spending output 0.
         let json = r#"{
             "txid": "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",

@@ -1,31 +1,9 @@
-//! RGB++ commitment: the value a Bitcoin transaction publishes in an `OP_RETURN`
-//! to bind itself to a CKB transaction.
+//! RGB++ commitments: the value a Bitcoin transaction publishes in an `OP_RETURN` to
+//! bind itself to a CKB transaction.
 //!
-//! The preimage is
-//!
-//! ```text
-//! "RGB++" || version(u16, big endian) || input_len(u8) || output_len(u8)
-//!          || input_len   x  molecule OutPoint                  (36 bytes each)
-//!          || output_len  x (molecule CellOutput || molecule Bytes(output_data))
-//! ```
-//!
-//! and the commitment is `sha256(sha256(preimage))`. RGB++ requires the committed
-//! cells to be the *leading* inputs/outputs of the CKB transaction, so the preimage
-//! is built from prefixes of the transaction's input and output lists — `input_len`
-//! counts the leading RGB++ inputs, `output_len` the leading RGB++ outputs.
-//!
-//! One subtlety decides whether any of this produces the right number: the committed
-//! output cells carry a **zeroed Bitcoin txid** in their lock args. The commitment is
-//! written into the very Bitcoin transaction whose outputs those cells will be bound
-//! to, so at commitment time that txid does not exist yet. Use
-//! [`crate::protocol::args_with_placeholder_txid`] when assembling outputs; passing
-//! the on-chain args straight through produces a plausible-looking digest that never
-//! matches anything.
-//!
-//! Commitment checking is a *verification* concern, not a discovery concern: the
-//! indexer discovers state transitions from CKB and only uses the commitment to
-//! label a transition as verified, suspicious, or unchecked. Treat a mismatch as a
-//! signal to investigate, never as a reason to drop an on-chain fact.
+//! `sha256(sha256(preimage))` over the leading RGB++ inputs and outputs. The committed
+//! outputs carry a **zeroed** Bitcoin txid — see `docs/commitments.md`, which is worth
+//! reading before touching any of this.
 
 use sha2::{Digest, Sha256};
 
@@ -150,7 +128,7 @@ mod tests {
     use crate::ckb::{Script, ScriptHashType, H256};
 
     #[test]
-    fn preimage_layout_has_the_expected_header() {
+    fn preimage_layout() {
         let inputs = vec![CkbOutPoint::new(H256::ZERO, 1)];
         let outputs: Vec<(CellOutput, Vec<u8>)> = vec![(
             CellOutput {
@@ -171,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn op_return_payload_handles_push_forms() {
+    fn op_return_push_forms() {
         // OP_RETURN <32 bytes>
         let mut script = vec![0x6a, 0x20];
         script.extend_from_slice(&[0xab; 32]);
@@ -189,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn find_commitment_prefers_the_tagged_payload() {
+    fn prefers_tagged_commitment() {
         let mut untagged = vec![0x6a, 0x20];
         untagged.extend_from_slice(&[0x11; 32]);
 

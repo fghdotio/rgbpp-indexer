@@ -287,7 +287,7 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
-    fn large_round_amounts_render_as_digits_not_science() {
+    fn no_scientific_notation() {
         let cases = [
             ("1000000000000000000", "1000000000000000000"),
             (
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn a_summed_numeric_keeps_full_precision() {
+    fn summed_numeric_precision() {
         // SUM() over NUMERIC(40, 0) can exceed u128; the string form must survive it.
         let total = BigDecimal::from_str("340282366920938463463374607431768211455").unwrap()
             * BigDecimal::from(3);

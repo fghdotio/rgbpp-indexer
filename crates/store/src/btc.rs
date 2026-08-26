@@ -1,11 +1,7 @@
 //! Bitcoin observation cache.
 //!
-//! Nothing here is a fact. Every row answers a question that can simply be asked
-//! again, which is why these tables carry timestamps instead of block anchors — and
-//! why a Bitcoin reorg needs no code of its own: an observation that a reorg
-//! invalidated is just an observation that has gone stale, and staleness is already
-//! how every reader treats it. The `invalidated_at` column is reserved for the
-//! explicit expiry pass described in `docs/reorg.md`.
+//! Nothing here is a fact — every row answers a question that can be asked again,
+//! which is why these tables carry timestamps instead of block anchors.
 
 use chrono::{DateTime, Utc};
 use rgbpp_types::state::OutpointSpendStatus;

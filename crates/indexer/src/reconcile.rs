@@ -1,21 +1,7 @@
-//! Bitcoin-driven reconciliation — the path that closes the CKB blind spot.
+//! Bitcoin-driven reconciliation: the on-demand path that closes the gap the scanner
+//! cannot see into.
 //!
-//! The CKB scanner only sees transitions once they are `REORG_LAG` blocks deep, and
-//! it cannot see a transition at all until the CKB transaction is committed. A
-//! Bitcoin transaction that spends a bound UTXO can be broadcast, and even confirmed,
-//! well before either of those. Nothing on the CKB side will announce it.
-//!
-//! So the application tells us where to look, and this module does the looking:
-//!
-//! * **Address-level diff** — when an application asks for an address's UTXOs, the
-//!   live set from the Bitcoin data source is diffed against the outpoints the
-//!   indexer still believes are live. Anything that disappeared has moved on
-//!   Bitcoin, and its stale state is refreshed on the spot.
-//! * **Point refresh** — when an application polls one RGB++ transaction, exactly the
-//!   outpoints that transaction touches get re-observed.
-//!
-//! Both paths only ever *refresh observations*. They never write CKB facts, which is
-//! what keeps the two durability models from leaking into each other.
+//! Only ever refreshes observations — never writes CKB facts. See `docs/indexing.md`.
 
 use std::collections::HashSet;
 use std::sync::Arc;

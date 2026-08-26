@@ -1,16 +1,7 @@
 //! The Bitcoin half of the data layer.
 //!
-//! Everything the indexer needs from Bitcoin is expressed as [`BtcDataSource`], so
-//! the backing service is a deployment decision rather than an architectural one.
-//! Two implementations ship here:
-//!
-//! * [`esplora::EsploraSource`] — the Esplora REST API, as served by
-//!   `mempool.space`, `blockstream/electrs` and self-hosted electrs.
-//! * [`blockbook::BlockbookSource`] — Trezor Blockbook.
-//!
-//! Everything this trait returns is a *re-queryable observation*, never a
-//! dependency-bearing fact. That is what lets the Bitcoin side treat a reorg as
-//! cache invalidation instead of a rollback: any answer can simply be asked again.
+//! Everything the indexer needs from Bitcoin is [`BtcDataSource`], so the backing
+//! service is a deployment decision. Esplora and Blockbook implementations ship here.
 
 pub mod blockbook;
 pub mod error;

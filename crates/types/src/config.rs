@@ -622,7 +622,7 @@ hash_type = "type"
 "#;
 
     #[test]
-    fn minimal_config_parses_with_defaults() {
+    fn minimal_config() {
         let config = Config::from_toml_str(MINIMAL).unwrap();
         assert_eq!(config.ckb.reorg_lag, 24);
         assert_eq!(config.ckb.indexer_url(), "http://127.0.0.1:8114");
@@ -631,7 +631,7 @@ hash_type = "type"
     }
 
     #[test]
-    fn empty_environment_values_do_not_clobber_the_config() {
+    fn empty_env_is_unset() {
         // `docker compose` writes an unset `${VAR:-}` through as an empty string.
         // Treating that as an override blanks required fields and the process dies
         // at startup with a confusing "ckb.rpc_url is empty".
@@ -657,7 +657,7 @@ hash_type = "type"
     }
 
     #[test]
-    fn environment_overrides_win_when_they_carry_a_value() {
+    fn env_overrides_apply() {
         let mut config = Config::from_toml_str(MINIMAL).unwrap();
         let overrides: std::collections::HashMap<&str, &str> = [
             ("CKB_RPC_URL", "https://mainnet.ckb.dev/rpc"),
@@ -681,7 +681,7 @@ hash_type = "type"
     }
 
     #[test]
-    fn throughput_overrides_reach_the_right_fields() {
+    fn throughput_overrides() {
         // These are the knobs that differ by an order of magnitude between a
         // rate-limited public endpoint and a node on the same host.
         let mut config = Config::from_toml_str(MINIMAL).unwrap();
@@ -712,7 +712,7 @@ hash_type = "type"
     }
 
     #[test]
-    fn an_unparseable_override_is_ignored_rather_than_fatal() {
+    fn bad_override_ignored() {
         let mut config = Config::from_toml_str(MINIMAL).unwrap();
         let overrides: std::collections::HashMap<&str, &str> = [
             ("REORG_LAG", "soon"),
@@ -732,7 +732,7 @@ hash_type = "type"
     }
 
     #[test]
-    fn zero_code_hash_is_rejected() {
+    fn rejects_zero_code_hash() {
         let bad = MINIMAL.replace(
             "0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936",
             "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -741,7 +741,7 @@ hash_type = "type"
     }
 
     #[test]
-    fn safe_target_respects_lag_and_start_block() {
+    fn safe_target() {
         let config = Config::from_toml_str(MINIMAL).unwrap();
         assert_eq!(config.safe_ckb_target(1_000), Some(976));
         // Below the start block there is nothing worth scanning yet.

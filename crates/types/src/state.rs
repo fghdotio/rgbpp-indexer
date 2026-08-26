@@ -1,18 +1,7 @@
 //! The status model.
 //!
-//! Statuses are *derived*, never stored as an authoritative column. Two independent
-//! facts feed every answer:
-//!
-//! 1. **CKB fact** — has the cell been consumed in a block we have indexed? This is
-//!    ordered and dependency-bearing, so it is what a reorg rolls back.
-//! 2. **Bitcoin observation** — is the bound UTXO still unspent? This is a cache of
-//!    a re-queryable question, so it never needs rollback, only invalidation.
-//!
-//! The interesting states live in the gap between them: a Bitcoin transaction can be
-//! broadcast (or even confirmed) long before the matching CKB transaction shows up
-//! in the indexed range, which is exactly the window `PendingCkb` describes. That
-//! window is widened deliberately by `REORG_LAG`, so on-demand refresh is not an
-//! optimisation here — it is how applications see fresh state at all.
+//! Statuses are always derived from two independent facts — whether CKB consumed the
+//! cell, and what Bitcoin last said about its binding — never stored as a column.
 
 use serde::{Deserialize, Serialize};
 
@@ -182,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn ckb_consumption_wins_over_any_btc_observation() {
+    fn ckb_spend_wins() {
         for btc in [
             OutpointSpendStatus::Unknown,
             OutpointSpendStatus::Unspent,
@@ -193,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn btc_spend_without_ckb_is_the_pending_window() {
+    fn btc_spend_is_pending() {
         assert_eq!(
             derive_cell_status(
                 false,
@@ -214,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn unobserved_utxo_reads_as_live() {
+    fn unobserved_is_live() {
         assert_eq!(
             derive_cell_status(false, OutpointSpendStatus::Unknown),
             CellStatus::Live

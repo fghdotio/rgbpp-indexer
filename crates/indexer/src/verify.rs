@@ -1,13 +1,7 @@
 //! Commitment cross-checking.
 //!
-//! Discovery never depends on this. The indexer records what both chains say and
-//! compares them; a mismatch produces an anomaly, never a dropped fact. That ordering
-//! is deliberate — an indexer that silently discards on-chain state because its own
-//! commitment computation disagreed would be worse than one that reports the
-//! disagreement.
-//!
-//! Off by default. Enable `verify.commitments` once the computed values have been
-//! checked against known-good transactions on the network being indexed.
+//! A mismatch records an anomaly; it never drops an indexed fact. See
+//! `docs/commitments.md`.
 
 use std::sync::Arc;
 

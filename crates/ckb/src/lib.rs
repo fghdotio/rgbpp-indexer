@@ -1,10 +1,5 @@
-//! The CKB half of the data layer.
-//!
-//! Two endpoints, one client: the node's JSON-RPC (headers, full transactions) and
-//! the rich indexer's `get_transactions` (discovery by lock script). The indexer
-//! treats CKB as the *entry point* for discovery — every RGB++ state transition
-//! eventually lands in a CKB transaction that touches an RGB++ lock, so scanning
-//! that one script prefix finds all of them.
+//! The CKB half of the data layer: the node's JSON-RPC for headers and transactions,
+//! and the rich indexer's `get_transactions` for discovery by lock script.
 
 pub mod client;
 pub mod error;

@@ -1,14 +1,8 @@
-//! RGB++ protocol decoding: which CKB locks matter, and what their args mean.
+//! RGB++ protocol decoding: the two locks that define the protocol surface, and what
+//! their args mean.
 //!
-//! Two lock scripts define the protocol surface an indexer must watch:
-//!
-//! * **RGB++ lock** — `args = out_index (u32le) || btc_txid (32 bytes, internal
-//!   order)`. A cell under this lock is *owned by* the referenced Bitcoin UTXO;
-//!   spending the UTXO on Bitcoin is what authorises spending the cell on CKB.
-//! * **BTC time lock** — `args = molecule BTCTimeLock { lock_script: Script,
-//!   after: Uint32, btc_txid: Byte32 }`. This is the landing zone for a "leap to
-//!   CKB": the cell becomes spendable under `lock_script` once `btc_txid` has
-//!   `after` confirmations.
+//! RGB++ lock args are `out_index (u32le) || btc_txid (32 bytes, consensus order)`;
+//! BTC time lock args are a molecule table `{ lock_script, after, btc_txid }`.
 
 use serde::{Deserialize, Serialize};
 
@@ -259,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn rgbpp_args_roundtrip() {
+    fn rgbpp_args() {
         let args = RgbppLockArgs {
             out_index: 3,
             txid: sample_txid(),
@@ -274,13 +268,13 @@ mod tests {
     }
 
     #[test]
-    fn rgbpp_args_reject_wrong_length() {
+    fn rgbpp_args_wrong_length() {
         assert!(RgbppLockArgs::parse(&[0u8; 35]).is_err());
         assert!(RgbppLockArgs::parse(&[0u8; 37]).is_err());
     }
 
     #[test]
-    fn placeholder_only_clears_the_txid() {
+    fn placeholder_clears_txid() {
         let args = RgbppLockArgs {
             out_index: 5,
             txid: sample_txid(),
@@ -306,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn btc_time_args_roundtrip() {
+    fn btc_time_args() {
         let args = BtcTimeLockArgs {
             target_lock: Script::new(H256::ZERO, ScriptHashType::Type, vec![7, 7]),
             after: 6,

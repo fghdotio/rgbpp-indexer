@@ -51,6 +51,12 @@ impl Store {
         })
     }
 
+    // TODO: holder aggregates for the explorer's coin/statistic views need an L1/L2
+    // split, where L2 means the same asset held under a plain CKB lock. Only RGB++ and
+    // BTC time locks are indexed here, so L2 is out of scope by construction -- widening
+    // it would make this a UDT indexer rather than an RGB++ one. Compose L2 in the
+    // gateway instead, and note the count will be approximate.
+
     /// Balances across a set of Bitcoin outpoints, grouped by asset.
     ///
     /// `include_pending = false` excludes cells whose bound UTXO has already been

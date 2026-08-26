@@ -192,6 +192,11 @@ pub struct AddressAssetsResponse {
 /// UTXO set is fetched from the Bitcoin data source and diffed against the outpoints
 /// the indexer still believes are live; anything that has moved gets re-observed, so
 /// the answer reflects Bitcoin's view even when the CKB side has not caught up.
+// TODO: an empty result cannot be told apart from "not indexed yet". Answer 503 with
+// an explicit syncing state (plus progress) while blocks_behind is large or the stream
+// holds an error, and carry indexed_to/chain_tip on normal responses. Must land before
+// the first external consumer -- adding a 503 to an endpoint that has always returned
+// 200 is a breaking change afterwards. See README "Known limitations".
 pub async fn assets_by_btc_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
@@ -448,7 +453,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn outpoint_parsing_accepts_the_documented_form() {
+    fn outpoint_parsing() {
         let outpoint =
             parse_outpoint("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:2")
                 .unwrap();

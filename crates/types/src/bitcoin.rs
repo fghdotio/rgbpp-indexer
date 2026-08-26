@@ -1,15 +1,9 @@
-//! Bitcoin primitives, with one explicit rule about byte order.
+//! Bitcoin primitives, with one rule about byte order.
 //!
-//! Bitcoin txids are printed by explorers in the *reverse* of their internal
-//! serialisation. Mixing the two is the classic source of "the indexer sees
-//! nothing" bugs, so this type pins the convention:
-//!
-//! * `BtcTxid` stores bytes in **display order** (what `mempool.space` shows).
-//! * Everything that talks to a human, an HTTP API or the database uses display
-//!   order.
-//! * [`BtcTxid::to_internal_bytes`] / [`BtcTxid::from_internal_bytes`] are the only
-//!   places the reversal happens — notably when reading RGB++ lock script args,
-//!   which embed the txid in internal (consensus) order.
+//! `BtcTxid` stores **display order** — what explorers show. The reversal to
+//! consensus order happens only in `to_internal_bytes` / `from_internal_bytes`, which
+//! is what RGB++ lock args use. Mixing the two is the classic "the indexer sees
+//! nothing" bug.
 
 use std::fmt;
 
@@ -181,7 +175,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_and_internal_orders_are_mirrors() {
+    fn txid_byte_order() {
         let txid =
             BtcTxid::from_hex("4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b")
                 .unwrap();

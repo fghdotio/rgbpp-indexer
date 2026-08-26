@@ -1,14 +1,9 @@
 //! Commitment computation, pinned to real on-chain transactions.
 //!
-//! Both fixtures are genuine CKB testnet transactions paired with the commitment
-//! their Bitcoin counterpart actually published in an `OP_RETURN`. They exist because
-//! the pre-image encoding has several places where a plausible guess produces a
-//! confident-looking wrong digest — the txid placeholder in output lock args above
-//! all — and a unit test built from the same assumptions as the implementation would
-//! happily agree with a wrong one.
-//!
-//! If these ever fail, the commitment encoding has drifted from what the protocol
-//! actually publishes. Do not "fix" them by recomputing the expected values.
+//! The pre-image has places where a plausible guess yields a confident-looking wrong
+//! digest, so a unit test built from the implementation's own assumptions would agree
+//! with a wrong one. If these fail the encoding has drifted — do not "fix" them by
+//! recomputing the expected values.
 
 use rgbpp_ckb::types::RpcTransaction;
 use rgbpp_indexer::extract::{self, ResolvedInput};
@@ -94,19 +89,19 @@ fn check(fixture_json: &str) {
 }
 
 #[test]
-fn transfer_commitment_matches_the_published_op_return() {
+fn transfer_commitment() {
     check(include_str!("fixtures/testnet_transfer.json"));
 }
 
 #[test]
-fn leap_to_ckb_commitment_matches_the_published_op_return() {
+fn leap_commitment() {
     check(include_str!("fixtures/testnet_leap_to_ckb.json"));
 }
 
 /// Guard the specific mistake the fixtures were captured to catch: committing the
 /// on-chain lock args instead of the placeholdered ones.
 #[test]
-fn using_the_on_chain_txid_would_not_match() {
+fn on_chain_txid_mismatches() {
     let fixture: Fixture =
         serde_json::from_str(include_str!("fixtures/testnet_transfer.json")).unwrap();
     let protocol = testnet_protocol();
@@ -142,7 +137,7 @@ fn using_the_on_chain_txid_would_not_match() {
 
 /// Sanity: the fixtures really are the two different protocol shapes.
 #[test]
-fn fixtures_cover_both_output_lock_kinds() {
+fn fixtures_cover_both_locks() {
     let transfer: Fixture =
         serde_json::from_str(include_str!("fixtures/testnet_transfer.json")).unwrap();
     let leap: Fixture =

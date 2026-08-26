@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn outputs_under_other_locks_are_ignored() {
+    fn ignores_other_locks() {
         let protocol = protocol();
         let outputs = vec![
             rgbpp_cell(&protocol, 0, 1),
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_args_do_not_abort_the_transaction() {
+    fn malformed_args_skipped() {
         let protocol = protocol();
         let mut bad = rgbpp_cell(&protocol, 0, 1);
         bad.lock.args = rgbpp_types::ckb::Bytes(vec![0u8; 10]); // not 36 bytes
@@ -410,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn transition_kinds_cover_the_protocol_shapes() {
+    fn transition_kinds() {
         let protocol = protocol();
         let rgbpp_out =
             classify_outputs(&protocol, &[rgbpp_cell(&protocol, 0, 1)], &[vec![]]).unwrap();
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn btc_txid_comes_from_outputs_and_needs_agreement() {
+    fn btc_txid_from_outputs() {
         let protocol = protocol();
         let same = classify_outputs(
             &protocol,
@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_produces_cells_spends_and_a_transition() {
+    fn extract_full_tx() {
         let protocol = protocol();
         let assets = AssetScripts::default();
         let block = BlockContext {
@@ -508,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn a_transaction_with_nothing_readable_is_an_error() {
+    fn nothing_readable_errors() {
         let protocol = protocol();
         let err = extract(
             &protocol,

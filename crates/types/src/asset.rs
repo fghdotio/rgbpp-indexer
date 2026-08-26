@@ -1,10 +1,6 @@
-//! Asset recognition.
-//!
-//! The indexer's job is RGB++ *ownership*, not asset semantics, so this layer stays
-//! deliberately thin: identify the type script well enough to group and total
-//! balances, and decode the one field (`u128` amount) that every UDT flavour shares.
-//! Anything richer — Spore content, token metadata — is left to consumers, which can
-//! read the raw type script and cell data the indexer stores.
+//! Asset recognition: enough to group balances and decode the `u128` amount every UDT
+//! flavour shares. Richer semantics are left to consumers, which get the raw type
+//! script and cell data.
 
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +52,11 @@ impl AssetKind {
         matches!(self, AssetKind::Xudt | AssetKind::Sudt)
     }
 }
+
+// TODO: asset metadata (symbol, decimals, name) is deliberately not here -- the
+// gateway proxies it for now. A native implementation would read Unique/Info cells
+// from CKB and cache them by type hash; nothing needs reserving for it, since that
+// data can be derived from current chain state at any time.
 
 /// Type-script code hashes the indexer knows how to label, from configuration.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,7 +112,7 @@ mod tests {
     use crate::ckb::ScriptHashType;
 
     #[test]
-    fn udt_amount_reads_little_endian_prefix() {
+    fn udt_amount_le_prefix() {
         let mut data = 1_234_567_890u128.to_le_bytes().to_vec();
         data.extend_from_slice(b"extension data is ignored");
         assert_eq!(parse_udt_amount(&data), Some(1_234_567_890));
@@ -119,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn classification_falls_through_to_unknown() {
+    fn unknown_type_script() {
         let code =
             H256::from_hex("0x1111111111111111111111111111111111111111111111111111111111111111")
                 .unwrap();

@@ -1,14 +1,5 @@
-//! Sync progress reporting.
-//!
-//! During initial sync the scanner completes a round every few hundred milliseconds.
-//! Logging each one buries the two numbers anyone actually wants — how fast is it
-//! going, and when will it be done — under thousands of lines that each say almost
-//! nothing.
-//!
-//! So rounds are accumulated and reported on a fixed interval: one line per window,
-//! carrying the block range covered, throughput, what was found, and a rate-derived
-//! ETA. Per-round detail stays at `debug`. The line is emitted as structured fields
-//! so it reads the same whether the sink is a terminal or JSON.
+//! Sync progress reporting: rounds are accumulated and summarised on an interval, so
+//! a fast initial sync does not bury the two numbers worth reading.
 
 use std::time::{Duration, Instant};
 
@@ -192,7 +183,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn durations_stay_two_units_wide() {
+    fn duration_format() {
         assert_eq!(human_duration(0), "0s");
         assert_eq!(human_duration(45), "45s");
         assert_eq!(human_duration(90), "1m30s");
@@ -202,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn eta_handles_the_degenerate_cases() {
+    fn eta_edge_cases() {
         assert_eq!(eta(0, 100.0), "0s");
         assert_eq!(eta(1_000, 0.0), "?");
         assert_eq!(eta(1_000, f64::NAN), "?");
@@ -225,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn the_eta_uses_the_session_average_not_the_window() {
+    fn eta_uses_session_average() {
         let mut reporter = SyncReporter::new(Duration::from_secs(3600), 0);
         reporter.record(&round(0, 999, 10_000));
         assert_eq!(reporter.session_blocks, 1_000);
@@ -240,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn rounds_accumulate_until_the_window_elapses() {
+    fn rounds_accumulate() {
         let mut reporter = SyncReporter::new(Duration::from_secs(3600), 100);
         reporter.record(&round(100, 199, 10_000));
         reporter.record(&round(200, 299, 10_000));
@@ -256,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn an_idle_round_flushes_and_latches_caught_up() {
+    fn idle_latches_caught_up() {
         let mut reporter = SyncReporter::new(Duration::from_secs(3600), 100);
         reporter.record(&round(100, 199, 199));
 

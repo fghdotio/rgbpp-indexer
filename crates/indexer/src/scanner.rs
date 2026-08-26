@@ -1,14 +1,7 @@
 //! The CKB discovery loop.
 //!
-//! CKB is the entry point: every RGB++ state transition ends in a CKB transaction
-//! that touches an RGB++ lock, so scanning two script prefixes through the rich
-//! indexer's `get_transactions` finds all of them, with `io_type` telling us whether
-//! a match was a creation or a consumption.
-//!
-//! The loop indexes to `tip - REORG_LAG` rather than to the tip. Everything below
-//! that line is treated as settled, which is what lets this version skip rollback
-//! logic entirely. The cost is a deliberate blind spot near the tip, covered by the
-//! Bitcoin-driven on-demand path rather than by indexing further.
+//! Scans two lock prefixes through the rich indexer up to `tip - REORG_LAG`. A round
+//! is one database transaction and never calls Bitcoin. See `docs/indexing.md`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

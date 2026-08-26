@@ -1,13 +1,7 @@
-//! The daily safety net.
+//! The daily sweep over every live binding.
 //!
-//! Incremental work is driven by confirmed state transitions and by what applications
-//! ask about. Neither covers the case this sweep exists for: a bound UTXO spent on
-//! Bitcoin by a wallet that had no idea it was carrying an RGB++ asset. Nobody polls
-//! for that transaction, and no CKB transaction will ever reference it.
-//!
-//! So once a day every bound outpoint gets re-observed, and anything spent on Bitcoin
-//! without a matching CKB transition — after a grace period long enough to rule out a
-//! slow submission — is recorded as an anomaly for a human to look at.
+//! Exists for the case nobody polls for: a bound UTXO spent by a wallet that did not
+//! know it held an RGB++ asset. See `docs/indexing.md`.
 
 use std::sync::Arc;
 

@@ -47,6 +47,11 @@ enum Command {
     SweepOnce,
     /// Print indexer status as JSON.
     Status,
+    // TODO: add a `reclassify` command. asset_kind and udt_amount are written at index
+    // time from the [assets] config, so a missing code hash leaves cells as "unknown"
+    // with no amount until re-indexed. Both inputs (cell_data, type_script) are stored,
+    // so they can be recomputed in place -- turning a misconfiguration into a SQL pass
+    // instead of a resync.
     /// Re-observe specific outpoints, given as `txid:vout`.
     Refresh {
         #[arg(required = true)]

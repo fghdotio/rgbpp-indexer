@@ -1,11 +1,8 @@
-//! Esplora REST implementation.
+//! Esplora REST implementation, compatible with `mempool.space`, `blockstream/electrs`
+//! and self-hosted electrs.
 //!
-//! Compatible with `mempool.space`, `blockstream/electrs` and self-hosted electrs.
-//! `base_url` includes any API prefix, e.g. `https://mempool.space/api`.
-//!
-//! This backend answers "is this outpoint spent, and by whom" in a single call
-//! (`/tx/:txid/outspend/:vout`), which is the question the whole RGB++ pending-state
-//! model is built on.
+//! Answers "is this outpoint spent, and by whom" in one call, which is what the whole
+//! pending-state model is built on.
 
 use std::time::Duration;
 
@@ -270,7 +267,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn outspend_maps_to_the_three_meaningful_states() {
+    fn outspend_states() {
         let unspent: EsploraOutspend = serde_json::from_str(r#"{"spent": false}"#).unwrap();
         assert_eq!(unspent.to_status().unwrap(), OutpointSpendStatus::Unspent);
 
@@ -308,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn base_url_trailing_slash_does_not_double_up() {
+    fn base_url_trailing_slash() {
         let source = EsploraSource::new(
             "https://mempool.space/api/",
             Duration::from_secs(1),

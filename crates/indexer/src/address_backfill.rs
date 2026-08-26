@@ -1,19 +1,9 @@
-//! Resolving which Bitcoin address owns each RGB++ binding.
+//! Resolving which Bitcoin address owns each RGB++ binding, from the transaction that
+//! funded it.
 //!
-//! A cell bound to `(txid, vout)` belongs to whoever controls that output, so the
-//! funding transaction is the authoritative source. That matters because the
-//! alternative — reading an address's live UTXO listing — can only ever label
-//! bindings that are *still unspent at the moment someone asks*.
-//!
-//! The difference is not academic. Spending a binding removes it from the listing
-//! forever, so a transfer the indexer did not happen to observe beforehand becomes
-//! permanently unattributable, and address history ends up depending on when a user
-//! last opened their wallet rather than on what the chain says. Funding transactions
-//! do not move: a binding spent long ago resolves exactly as well as a fresh one.
-//!
-//! Most bindings are labelled for free, because [`Reconciler::refresh_btc_tx`]
-//! already fetches the transactions that create them. This worker exists for the
-//! remainder — historical bindings indexed before any Bitcoin lookup touched them.
+//! Ownership taken from an address's live UTXO listing would silently exclude every
+//! binding already spent, which is most of what a history is made of. See
+//! `docs/indexing.md`.
 
 use std::sync::Arc;
 

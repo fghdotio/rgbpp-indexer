@@ -1,14 +1,8 @@
 //! Schema and query tests against a real PostgreSQL.
 //!
-//! The store writes runtime SQL so that building never needs a database — which
-//! means the queries themselves are only ever validated here. These tests exist to
-//! catch the class of bug that would otherwise reach production: a renamed column, a
-//! view whose status derivation drifts from the Rust model, an `UNNEST` binding that
-//! does not typecheck.
-//!
-//! Each test gets its own PostgreSQL schema, so they run in parallel without a
-//! shared-fixture dance. Set `TEST_DATABASE_URL` to run them; without it they skip,
-//! so `cargo test` stays green on a machine with no database.
+//! The store writes runtime SQL, so these are the only thing validating it. Each test
+//! gets its own schema and they run in parallel; without `TEST_DATABASE_URL` they
+//! skip.
 
 use std::str::FromStr;
 
@@ -121,7 +115,7 @@ fn batch(number: i64) -> IndexBatch {
 }
 
 #[tokio::test]
-async fn cell_status_is_derived_from_both_chains() {
+async fn cell_status_derivation() {
     let Some(store) = store_for("lifecycle").await else {
         eprintln!("skipping: TEST_DATABASE_URL is not set");
         return;
@@ -250,7 +244,7 @@ async fn cell_status_is_derived_from_both_chains() {
 /// and the drift would be invisible — the view feeds the API while the Rust function
 /// feeds everything reasoning in-process. This pins them together.
 #[tokio::test]
-async fn the_view_and_the_rust_status_model_agree() {
+async fn view_matches_rust_status() {
     let Some(store) = store_for("status_parity").await else {
         return;
     };
@@ -331,7 +325,7 @@ async fn the_view_and_the_rust_status_model_agree() {
 }
 
 #[tokio::test]
-async fn a_spend_with_no_matching_cell_reports_zero() {
+async fn orphan_spend_reports_zero() {
     let Some(store) = store_for("orphan_spend").await else {
         return;
     };
@@ -352,7 +346,7 @@ async fn a_spend_with_no_matching_cell_reports_zero() {
 }
 
 #[tokio::test]
-async fn refresh_queue_claims_backs_off_and_completes() {
+async fn refresh_queue_lifecycle() {
     let Some(store) = store_for("queue").await else {
         return;
     };
@@ -401,7 +395,7 @@ async fn refresh_queue_claims_backs_off_and_completes() {
 }
 
 #[tokio::test]
-async fn anomalies_deduplicate_and_reopen() {
+async fn anomaly_dedup_and_reopen() {
     let Some(store) = store_for("anomalies").await else {
         return;
     };
@@ -467,7 +461,7 @@ async fn anomalies_deduplicate_and_reopen() {
 }
 
 #[tokio::test]
-async fn address_and_sweep_work_lists_are_derived_from_cells() {
+async fn work_lists_derived() {
     let Some(store) = store_for("worklists").await else {
         return;
     };
@@ -550,7 +544,7 @@ async fn address_and_sweep_work_lists_are_derived_from_cells() {
 /// unattributable — and spent bindings are exactly what transaction history is made
 /// of.
 #[tokio::test]
-async fn binding_addresses_come_from_the_funding_transaction() {
+async fn binding_address_from_funding_tx() {
     let Some(store) = store_for("binding_addresses").await else {
         return;
     };
@@ -618,7 +612,7 @@ async fn binding_addresses_come_from_the_funding_transaction() {
 /// Labelling says nothing about whether an outpoint is spent, so it must not disturb
 /// the observation or make a stale one look fresh.
 #[tokio::test]
-async fn labelling_does_not_disturb_the_spend_observation() {
+async fn labelling_isolated_from_status() {
     let Some(store) = store_for("labelling_isolation").await else {
         return;
     };
@@ -676,7 +670,7 @@ async fn labelling_does_not_disturb_the_spend_observation() {
 /// The worker walks funding transactions, not bindings, so one request fills every
 /// binding that transaction created.
 #[tokio::test]
-async fn the_backfill_work_list_is_grouped_and_shrinks() {
+async fn backfill_work_list() {
     let Some(store) = store_for("backfill_worklist").await else {
         return;
     };
@@ -715,7 +709,7 @@ async fn the_backfill_work_list_is_grouped_and_shrinks() {
 }
 
 #[tokio::test]
-async fn balances_are_computed_on_read() {
+async fn balances_on_read() {
     let Some(store) = store_for("balances").await else {
         return;
     };
@@ -778,7 +772,7 @@ async fn balances_are_computed_on_read() {
 }
 
 #[tokio::test]
-async fn transitions_and_commitment_status_round_trip() {
+async fn transition_commitment_status() {
     let Some(store) = store_for("transitions").await else {
         return;
     };
@@ -823,7 +817,7 @@ async fn transitions_and_commitment_status_round_trip() {
 /// matters most is the outgoing one: a transfer shows up because the address *lost* a
 /// cell, and that cell's binding is spent by then.
 #[tokio::test]
-async fn activity_covers_both_sides_of_a_transfer() {
+async fn activity_both_sides() {
     let Some(store) = store_for("activity").await else {
         return;
     };
@@ -921,7 +915,7 @@ async fn activity_covers_both_sides_of_a_transfer() {
 /// Keyset pagination, because an offset drifts as the scanner appends and would
 /// silently repeat or skip entries mid-scroll.
 #[tokio::test]
-async fn activity_pages_by_keyset_within_a_block() {
+async fn activity_keyset_paging() {
     let Some(store) = store_for("activity_paging").await else {
         return;
     };
@@ -982,7 +976,7 @@ async fn activity_pages_by_keyset_within_a_block() {
 }
 
 #[tokio::test]
-async fn sweep_runs_are_recorded() {
+async fn sweep_runs() {
     let Some(store) = store_for("sweeps").await else {
         return;
     };
@@ -999,7 +993,7 @@ async fn sweep_runs_are_recorded() {
 }
 
 #[tokio::test]
-async fn block_headers_keep_their_activity_flag_and_prune() {
+async fn header_activity_and_prune() {
     let Some(store) = store_for("headers").await else {
         return;
     };

@@ -1,10 +1,9 @@
 //! The HTTP API.
 //!
-//! Read endpoints answer from the indexed range. Address and transaction endpoints
-//! reconcile against the Bitcoin data source first, because the indexed range stops
-//! `REORG_LAG` blocks short of the tip by design and cannot see a CKB transaction that
-//! has not been committed yet. `/status` reports that lag explicitly, so a client can
-//! tell "not there" from "not there yet".
+//! Read endpoints answer from the indexed range; address and transaction endpoints
+//! reconcile against Bitcoin first, because that range stops `REORG_LAG` blocks short
+//! of the tip by design. `/status` reports the lag so a client can tell "not there"
+//! from "not there yet".
 
 pub mod dto;
 pub mod error;

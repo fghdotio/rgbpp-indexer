@@ -1,13 +1,8 @@
 //! Address activity.
 //!
-//! "What has this address done" is a question about *transitions*, but transitions
-//! carry no address — ownership lives on the binding. So the join runs
-//! `address → bindings → cells → the transitions that created or consumed them`.
-//!
-//! That first hop is only as good as the binding ownership recorded by the address
-//! backfill. Ownership derived from an address's live UTXO listing would restrict
-//! this to bindings still unspent when someone last looked — which excludes every
-//! transfer out, and transfers out are most of what a history shows.
+//! Transitions carry no address, so the join runs
+//! `address -> bindings -> cells -> transitions`. That first hop is only as good as
+//! the ownership recorded by the address backfill.
 
 use sqlx::Postgres;
 

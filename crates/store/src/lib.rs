@@ -1,17 +1,8 @@
 //! Persistence.
 //!
-//! Queries are written at runtime (`sqlx::query`), not with the compile-time macros,
-//! so building the project never requires a live database.
-//!
-//! Two invariants shape everything here:
-//!
-//! * **A scan round is one transaction.** Headers, cells, spends, transitions and the
-//!   checkpoint advance together, so a crash can never leave the checkpoint ahead of
-//!   the data it claims to cover.
-//! * **Nothing aggregated is stored.** Balances and counts are `SELECT`s over the
-//!   fact tables. This version does not implement reorg handling, but that choice is
-//!   what will make it a pure deletion later instead of a reverse-accounting
-//!   exercise — see `docs/reorg.md`.
+//! Queries are written at runtime, so building never needs a database — which means
+//! `tests/schema.rs` is the only thing validating them. A scan round is one
+//! transaction, and no aggregate is ever stored. See `docs/data-model.md`.
 
 pub mod activity;
 pub mod anomalies;

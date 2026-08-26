@@ -1,15 +1,9 @@
-//! The slice of molecule encoding the indexer needs.
+//! The slice of molecule encoding RGB++ commitments need: `Script`, `CellOutput`,
+//! `Bytes` and `OutPoint`.
 //!
-//! RGB++ commitments are computed over molecule-serialised CKB structures, so we
-//! need canonical encoders for `Script`, `CellOutput`, `Bytes` and `OutPoint`.
-//! Pulling in `ckb-types` for four encoders would drag a large dependency tree in;
-//! the schema for these types is stable and small enough to implement directly.
-//!
-//! Encoding rules used here (from the molecule spec):
-//! * `struct` / fixed-size types: fields concatenated, no header.
-//! * `fixvec` of bytes (`Bytes`): `u32le` item count, then the items.
-//! * `table`: `u32le` full size, then one `u32le` offset per field, then the bodies.
-//! * `option`: empty slice for `None`, the inner encoding for `Some`.
+//! Hand-rolled rather than pulling in `ckb-types` for four encoders. Rules: structs
+//! concatenate, `fixvec` prefixes a `u32le` count, tables prefix a size and one
+//! offset per field, options encode `None` as zero bytes.
 
 use crate::ckb::{CellOutput, CkbOutPoint, Script};
 
@@ -87,7 +81,7 @@ mod tests {
     use crate::ckb::{ScriptHashType, H256};
 
     #[test]
-    fn script_table_layout_is_canonical() {
+    fn script_table_layout() {
         let script = Script::new(H256::ZERO, ScriptHashType::Type, vec![0xaa, 0xbb]);
         let encoded = encode_script(&script);
 
@@ -104,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn out_point_struct_is_36_bytes() {
+    fn out_point_is_36_bytes() {
         let op = CkbOutPoint::new(H256::ZERO, 7);
         let encoded = encode_out_point(&op);
         assert_eq!(encoded.len(), 36);
@@ -112,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_bytes_is_just_the_length_prefix() {
+    fn empty_bytes() {
         assert_eq!(encode_bytes(&[]), vec![0, 0, 0, 0]);
     }
 }
@@ -234,7 +228,7 @@ mod decode_tests {
     use super::*;
 
     #[test]
-    fn script_roundtrips_through_molecule() {
+    fn script_roundtrip() {
         let script = Script::new(
             H256::from_hex("0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
                 .unwrap(),
@@ -246,7 +240,7 @@ mod decode_tests {
     }
 
     #[test]
-    fn truncated_table_is_rejected() {
+    fn rejects_truncated_table() {
         let script = Script::new(H256::ZERO, ScriptHashType::Type, vec![9]);
         let mut encoded = encode_script(&script);
         encoded.pop();

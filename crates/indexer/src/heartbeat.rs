@@ -1,11 +1,5 @@
-//! The operational one-liner.
-//!
-//! One line, on a slow interval, carrying everything you would otherwise open a
-//! dashboard for: how far the index has got, how far behind that leaves it, and the
-//! four counts that say whether the on-demand and background paths are healthy.
-//!
-//! It exists because the sync progress line goes quiet once the scanner is caught up,
-//! and silence is indistinguishable from a wedged process.
+//! The periodic operational one-liner. Exists because the sync line goes quiet once
+//! caught up, and silence is indistinguishable from a wedged process.
 
 use std::sync::Arc;
 

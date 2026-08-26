@@ -276,7 +276,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hex_uints_round_trip_through_json() {
+    fn hex_uint_json() {
         let v: Uint64 = serde_json::from_str("\"0x1a2b\"").unwrap();
         assert_eq!(v.0, 0x1a2b);
         assert_eq!(serde_json::to_string(&v).unwrap(), "\"0x1a2b\"");
@@ -284,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn grouped_tx_record_parses() {
+    fn grouped_tx_record() {
         let json = r#"{
             "block_number": "0x2a",
             "cells": [["output", "0x0"], ["input", "0x3"]],
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn search_key_serialises_the_shape_the_rich_indexer_expects() {
+    fn search_key_shape() {
         let script = Script::new(H256::ZERO, rgbpp_types::ckb::ScriptHashType::Type, vec![]);
         let key = SearchKey::lock_prefix(script).with_block_range(10, 20);
         let json = serde_json::to_value(&key).unwrap();

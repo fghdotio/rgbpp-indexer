@@ -246,7 +246,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ckb_hash_matches_known_vector() {
+    fn ckb_hash_vector() {
         // The empty-input digest of CKB's blake2b personalisation is a well-known
         // constant (it is `CKB_HASH_EMPTY` in ckb-hash).
         assert_eq!(
@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn h256_roundtrip() {
+    fn h256_hex() {
         let h =
             H256::from_hex("0xbc6c568a1a0d0a09f6844dc9d74ddb4343c32143ff25f727c59edf4fb72d6936")
                 .unwrap();
