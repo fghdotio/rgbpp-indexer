@@ -21,13 +21,23 @@ pub struct IndexerCounts {
     pub observed_outpoints: i64,
     pub open_anomalies: i64,
     pub refresh_queue_depth: i64,
+    /// Distinct UDT type script hashes seen under an RGB++ lock — how many different
+    /// fungible assets exist here, not how many cells hold them.
+    pub udts: i64,
+    /// Distinct Spore type script hashes. A spore's id lives in its type args, so one
+    /// hash is one DOB however many times it has moved between cells.
+    pub dobs: i64,
 }
 
 impl Store {
     pub async fn counts(&self) -> Result<IndexerCounts> {
         // One round trip: these are all cheap aggregates but there is no reason to
         // pay latency five times for a status endpoint.
-        let row: (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        //
+        // The two asset counts are COUNT(DISTINCT type_hash) rather than COUNT(*): a
+        // cell is one *holding* of an asset, and the same asset appears in a new cell
+        // every time it moves. `rgbpp_cells_type_hash_idx` covers both.
+        let row: (i64, i64, i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT
                 (SELECT COUNT(*) FROM rgbpp_cells),
                 (SELECT COUNT(*) FROM rgbpp_cells WHERE consumed_block_number IS NULL),
@@ -35,7 +45,11 @@ impl Store {
                 (SELECT COUNT(*) FROM rgbpp_transitions),
                 (SELECT COUNT(*) FROM btc_outpoints),
                 (SELECT COUNT(*) FROM rgbpp_anomalies WHERE resolved_at IS NULL),
-                (SELECT COUNT(*) FROM btc_refresh_queue)",
+                (SELECT COUNT(*) FROM btc_refresh_queue),
+                (SELECT COUNT(DISTINCT type_hash) FROM rgbpp_cells
+                  WHERE asset_kind IN ('xudt', 'sudt')),
+                (SELECT COUNT(DISTINCT type_hash) FROM rgbpp_cells
+                  WHERE asset_kind = 'spore')",
         )
         .fetch_one(self.pool())
         .await?;
@@ -48,6 +62,8 @@ impl Store {
             observed_outpoints: row.4,
             open_anomalies: row.5,
             refresh_queue_depth: row.6,
+            udts: row.7,
+            dobs: row.8,
         })
     }
 
