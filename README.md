@@ -231,6 +231,14 @@ order of magnitude between a public endpoint and self-hosted infrastructure:
 `CKB_POLL_INTERVAL_SECS`, `BTC_MAX_CONCURRENCY`, `BTC_MIN_REQUEST_INTERVAL_MS`,
 `DB_MAX_CONNECTIONS`.
 
+Asset code hashes are the same kind of value, with a quieter failure. A cell whose
+type script matches nothing in `[[assets.*]]` is indexed `asset_kind = "unknown"` —
+the index is complete, but the asset counts on `/status` and `/v1/rgbpp/assets` read
+as though those assets do not exist. Classification happens once, at index time, and
+re-scanning does not revisit it: the cell insert's `ON CONFLICT` clause refreshes only
+the `created_*` columns. [`scripts/reclassify-assets.sql`](scripts/reclassify-assets.sql)
+corrects existing rows in place, which is the alternative to a full resync.
+
 Policy settings (the sweep, verify and log sections) are TOML-only: they are meant to
 be reviewed as a set, and a value with two sources drifts. `.env.example` is the
 complete list of what the binary reads — anything absent from it does nothing.
