@@ -266,7 +266,7 @@ The knobs that matter most:
 |---|---|
 | `GET /health` | liveness |
 | `GET /status` | indexed height, chain tip, lag, derived counts, last sweep |
-| `GET /v1/rgbpp/assets` | every distinct asset by type hash; `?kind=udt\|dob\|all`, `?limit=`, `?offset=` |
+| `GET /v1/rgbpp/assets` | every distinct asset by type hash; `?kind=udt\|dob\|unknown\|all`, `?limit=`, `?offset=` |
 | `GET /v1/rgbpp/assets/by-btc-address/{address}` | **reconciles first**; `?reconcile=false` to skip |
 | `GET /v1/rgbpp/balance/by-btc-address/{address}` | derived on read; `?include_pending=true` counts in-flight cells |
 | `GET /v1/rgbpp/transactions/{btc_txid}` | cross-chain status + point refresh |

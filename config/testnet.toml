@@ -93,8 +93,24 @@ hash_type = "type"
 code_hash = "0x25c29dc317811a6f6f3985a7a9ebc4838bd388d19d0feeecf0bcd60f6c0975bb"
 hash_type = "type"
 
-# Neither sUDT nor Spore was observed on testnet RGB++ cells. Add them here if you
-# see `asset_kind = "unknown"` in your own data.
+# Spore and Spore Cluster, as observed on testnet RGB++ cells: their cell data
+# decodes as SporeData (content_type "dob/0", a cluster_id) and as a cluster
+# definition respectively. Without these two, every DOB is indexed `asset_kind =
+# "unknown"` and the asset counts on /status report zero DOBs.
+#
+# Note these apply at index time. Cells already written as `unknown` keep that
+# classification until they are reindexed.
+
+[[assets.spore]]
+code_hash = "0x685a60219309029d01310311dba953d67029170ca4848a4ff638e57002130a0d"
+hash_type = "data1"
+
+[[assets.spore_cluster]]
+code_hash = "0x0bbe768b519d8ea7b96d58f1182eb7e6ef96c541fbd9526975077ee09f049058"
+hash_type = "data1"
+
+# sUDT was not observed on testnet RGB++ cells. Add it here if you see
+# `asset_kind = "unknown"` on cells whose data starts with a little-endian u128.
 
 [reconcile]
 enabled = true
