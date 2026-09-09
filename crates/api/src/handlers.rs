@@ -395,13 +395,27 @@ pub async fn list_assets(
     State(state): State<AppState>,
     Query(query): Query<AssetsQuery>,
 ) -> ApiResult<Json<AssetsResponse>> {
+    // `unknown` is queryable on purpose. A cell whose type script matches no
+    // configured code hash is classified `unknown`, and that is a configuration
+    // problem rather than an absence of assets -- an indexer missing a code hash
+    // would otherwise report an empty asset list while happily indexing the cells.
+    //
+    // A cluster is a DOB collection, so it is listed alongside its members instead
+    // of matching neither `udt` nor `dob` and falling out of both.
     let kinds: Vec<String> = match query.kind.as_deref() {
-        None | Some("all") => vec!["xudt".to_string(), "sudt".to_string(), "spore".to_string()],
+        None | Some("all") => vec![
+            "xudt".to_string(),
+            "sudt".to_string(),
+            "spore".to_string(),
+            "spore_cluster".to_string(),
+            "unknown".to_string(),
+        ],
         Some("udt") => vec!["xudt".to_string(), "sudt".to_string()],
-        Some("dob") => vec!["spore".to_string()],
+        Some("dob") => vec!["spore".to_string(), "spore_cluster".to_string()],
+        Some("unknown") => vec!["unknown".to_string()],
         Some(other) => {
             return Err(ApiError::bad_request(format!(
-                "unknown asset kind `{other}`; expected `udt`, `dob` or `all`"
+                "unknown asset kind `{other}`; expected `udt`, `dob`, `unknown` or `all`"
             )))
         }
     };
