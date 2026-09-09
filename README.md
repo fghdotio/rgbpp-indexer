@@ -266,6 +266,7 @@ The knobs that matter most:
 |---|---|
 | `GET /health` | liveness |
 | `GET /status` | indexed height, chain tip, lag, derived counts, last sweep |
+| `GET /v1/rgbpp/assets` | every distinct asset by type hash; `?kind=udt\|dob\|all`, `?limit=`, `?offset=` |
 | `GET /v1/rgbpp/assets/by-btc-address/{address}` | **reconciles first**; `?reconcile=false` to skip |
 | `GET /v1/rgbpp/balance/by-btc-address/{address}` | derived on read; `?include_pending=true` counts in-flight cells |
 | `GET /v1/rgbpp/transactions/{btc_txid}` | cross-chain status + point refresh |
@@ -276,6 +277,11 @@ The knobs that matter most:
 | `GET /v1/rgbpp/transitions` · `/{ckb_tx_hash}` | |
 | `POST /v1/rgbpp/refresh` | `{"outpoints": ["txid:vout"], "synchronous": true}` |
 | `GET /v1/anomalies` | `?kind=`, `?include_resolved=true` |
+
+`/v1/rgbpp/assets` deliberately carries no `symbol` and no `decimals`. An asset's
+identity here is its type script hash; the cells that publish token metadata live
+under other locks and are not indexed, so a name would have to be invented. A client
+that needs one resolves it itself.
 
 Amounts and capacities are decimal **strings** — a `u128` UDT amount does not survive
 a JSON number. CKB hashes are `0x`-prefixed; Bitcoin txids are bare hex, matching what

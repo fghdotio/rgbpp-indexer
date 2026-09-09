@@ -346,6 +346,27 @@ pub struct AssetBalanceRow {
     pub total_amount: Option<BigDecimal>,
 }
 
+/// One distinct asset, aggregated over every cell that has ever held it.
+///
+/// Keyed by type script hash, which is the only identity an asset has here — the
+/// indexer stores no token metadata, so there is no symbol and no decimals.
+#[derive(Clone, Debug, FromRow)]
+pub struct AssetRow {
+    pub type_hash: Vec<u8>,
+    pub asset_kind: String,
+    /// Cells that have ever held it. A transfer creates a new cell, so this counts
+    /// holdings over time, not holders.
+    pub cell_count: i64,
+    pub live_cell_count: i64,
+    /// Distinct Bitcoin outpoints currently holding it — the closest thing to a
+    /// holder count that RGB++ state supports.
+    pub live_seal_count: i64,
+    pub total_amount: Option<BigDecimal>,
+    pub first_block_number: i64,
+    pub first_ckb_tx_hash: Vec<u8>,
+    pub last_block_number: i64,
+}
+
 /// Convert a `u128` UDT amount to the NUMERIC representation.
 pub fn udt_amount_to_decimal(amount: u128) -> Result<BigDecimal> {
     use std::str::FromStr;

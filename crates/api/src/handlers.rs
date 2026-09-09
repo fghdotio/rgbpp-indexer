@@ -369,6 +369,58 @@ pub async fn refresh_outpoints(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AssetsQuery {
+    /// `udt` (xUDT + sUDT), `dob` (Spore), or absent for both.
+    pub kind: Option<String>,
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssetsResponse {
+    pub assets: Vec<AssetDto>,
+    /// Distinct assets of this kind in the whole index, for paging.
+    pub total: i64,
+}
+
+/// Every distinct asset the index has seen, by type script hash.
+///
+/// Grouped over the cell table on read, like every other aggregate here. Note what
+/// this cannot answer: an asset has no name, and no holder count — the indexer learns
+/// Bitcoin addresses opportunistically, so `live_seal_count` (distinct outpoints
+/// currently holding it) is the honest stand-in.
+pub async fn list_assets(
+    State(state): State<AppState>,
+    Query(query): Query<AssetsQuery>,
+) -> ApiResult<Json<AssetsResponse>> {
+    let kinds: Vec<String> = match query.kind.as_deref() {
+        None | Some("all") => vec!["xudt".to_string(), "sudt".to_string(), "spore".to_string()],
+        Some("udt") => vec!["xudt".to_string(), "sudt".to_string()],
+        Some("dob") => vec!["spore".to_string()],
+        Some(other) => {
+            return Err(ApiError::bad_request(format!(
+                "unknown asset kind `{other}`; expected `udt`, `dob` or `all`"
+            )))
+        }
+    };
+
+    let limit = state.page_size(query.limit);
+    let offset = query.offset.max(0);
+    let store = &state.engine.store;
+
+    let (rows, total) = tokio::try_join!(
+        store.list_assets(&kinds, limit, offset),
+        store.count_assets(&kinds),
+    )?;
+
+    Ok(Json(AssetsResponse {
+        assets: rows.into_iter().map(AssetDto::from).collect(),
+        total,
+    }))
+}
+
 pub async fn recent_transitions(
     State(state): State<AppState>,
     Query(query): Query<LimitQuery>,

@@ -7,7 +7,7 @@
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
-use rgbpp_store::models::{AnomalyRow, AssetBalanceRow, CellRow, TransitionRow};
+use rgbpp_store::models::{AnomalyRow, AssetBalanceRow, AssetRow, CellRow, TransitionRow};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -206,6 +206,52 @@ impl From<AssetBalanceRow> for AssetBalanceDto {
             } else {
                 None
             },
+        }
+    }
+}
+
+/// One distinct asset in the index.
+///
+/// There is no `symbol` and no `decimals` field, and there will not be one until
+/// something indexes the cells that publish them: the type script hash is the whole
+/// identity of an asset here. A client that needs a name has to resolve it itself.
+#[derive(Debug, Serialize)]
+pub struct AssetDto {
+    pub type_hash: String,
+    pub asset_kind: String,
+    pub cell_count: i64,
+    pub live_cell_count: i64,
+    /// Distinct Bitcoin outpoints currently holding it.
+    pub live_seal_count: i64,
+    /// Absent for non-fungible assets.
+    pub total_amount: Option<String>,
+    pub first_block_number: i64,
+    pub first_ckb_tx_hash: String,
+    pub last_block_number: i64,
+}
+
+impl From<AssetRow> for AssetDto {
+    fn from(row: AssetRow) -> Self {
+        let is_fungible = matches!(row.asset_kind.as_str(), "xudt" | "sudt");
+        AssetDto {
+            type_hash: hex0x(&row.type_hash),
+            asset_kind: row.asset_kind,
+            cell_count: row.cell_count,
+            live_cell_count: row.live_cell_count,
+            live_seal_count: row.live_seal_count,
+            total_amount: if is_fungible {
+                Some(
+                    row.total_amount
+                        .as_ref()
+                        .map(plain_decimal)
+                        .unwrap_or_else(|| "0".to_string()),
+                )
+            } else {
+                None
+            },
+            first_block_number: row.first_block_number,
+            first_ckb_tx_hash: hex0x(&row.first_ckb_tx_hash),
+            last_block_number: row.last_block_number,
         }
     }
 }

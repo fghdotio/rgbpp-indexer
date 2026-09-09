@@ -9,7 +9,7 @@ use serde::Serialize;
 use sqlx::Postgres;
 
 use crate::error::Result;
-use crate::models::AssetBalanceRow;
+use crate::models::{AssetBalanceRow, AssetRow};
 use crate::Store;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -65,6 +65,59 @@ impl Store {
             udts: row.7,
             dobs: row.8,
         })
+    }
+
+    /// Every distinct asset of the given kinds, newest activity first.
+    ///
+    /// Grouped rather than listed: an asset appears in a new cell every time it
+    /// moves, so `SELECT DISTINCT type_hash` is the only way to answer "which assets
+    /// exist". `live_seal_count` counts the Bitcoin outpoints currently holding it,
+    /// which is as close to a holder count as RGB++ state gets — an address can own
+    /// many seals, and the indexer only learns addresses opportunistically.
+    pub async fn list_assets(
+        &self,
+        asset_kinds: &[String],
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AssetRow>> {
+        Ok(sqlx::query_as::<Postgres, AssetRow>(
+            "SELECT type_hash,
+                    asset_kind,
+                    COUNT(*)                                                   AS cell_count,
+                    COUNT(*) FILTER (WHERE consumed_block_number IS NULL)      AS live_cell_count,
+                    COUNT(DISTINCT (btc_txid, btc_vout))
+                      FILTER (WHERE consumed_block_number IS NULL)             AS live_seal_count,
+                    SUM(COALESCE(udt_amount, 0))
+                      FILTER (WHERE consumed_block_number IS NULL)             AS total_amount,
+                    MIN(created_block_number)                                  AS first_block_number,
+                    (ARRAY_AGG(ckb_tx_hash ORDER BY created_block_number,
+                                                    created_tx_index,
+                                                    output_index))[1]          AS first_ckb_tx_hash,
+                    MAX(created_block_number)                                  AS last_block_number
+               FROM rgbpp_cells
+              WHERE type_hash IS NOT NULL
+                AND asset_kind = ANY($1)
+              GROUP BY type_hash, asset_kind
+              ORDER BY last_block_number DESC, live_cell_count DESC, type_hash
+              LIMIT $2 OFFSET $3",
+        )
+        .bind(asset_kinds)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(self.pool())
+        .await?)
+    }
+
+    /// How many distinct assets of these kinds exist, for paging.
+    pub async fn count_assets(&self, asset_kinds: &[String]) -> Result<i64> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(DISTINCT type_hash) FROM rgbpp_cells
+              WHERE type_hash IS NOT NULL AND asset_kind = ANY($1)",
+        )
+        .bind(asset_kinds)
+        .fetch_one(self.pool())
+        .await?;
+        Ok(count)
     }
 
     // TODO: holder aggregates for the explorer's coin/statistic views need an L1/L2

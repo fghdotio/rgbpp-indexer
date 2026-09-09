@@ -69,6 +69,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/rgbpp/activity/by-btc-address/{address}",
             get(handlers::activity_by_btc_address),
         )
+        .route("/v1/rgbpp/assets", get(handlers::list_assets))
         .route("/v1/rgbpp/transitions", get(handlers::recent_transitions))
         .route(
             "/v1/rgbpp/transitions/{tx_hash}",
