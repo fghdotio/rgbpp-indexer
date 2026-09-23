@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+bech32 = { workspace = true }
+bs58 = { workspace = true }
 blake2b_simd = "1"
 chrono = { workspace = true }
 hex = { workspace = true }

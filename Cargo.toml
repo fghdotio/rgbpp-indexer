@@ -27,7 +27,9 @@ rgbpp-api = { path = "crates/api" }
 anyhow = "1"
 async-trait = "0.1"
 axum = "0.8"
+bech32 = "0.12"
 bigdecimal = "0.4"
+bs58 = { version = "0.5", features = ["check"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"

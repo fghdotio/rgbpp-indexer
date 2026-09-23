@@ -138,7 +138,7 @@
           {
             "name": "address",
             "in": "path",
-            "description": "Bitcoin address",
+            "description": "Bitcoin address on the network this index follows",
             "required": true,
             "schema": {
               "type": "string"
@@ -175,6 +175,16 @@
               }
             }
           },
+          "400": {
+            "description": "Not a valid address on the network this index follows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -194,7 +204,7 @@
           "assets"
         ],
         "summary": "Every distinct asset the index has seen, by type script hash.",
-        "description": "Grouped over the cell table on read, like every other aggregate here. Note what\nthis cannot answer: an asset has no name, and no holder count — the indexer learns\nBitcoin addresses opportunistically, so `live_seal_count` (distinct outpoints\ncurrently holding it) is the honest stand-in.",
+        "description": "Grouped over the cell table on read, like every other aggregate here. There is no\nname: a type script hash is an asset's whole identity here. There is no holder\ncount either. `live_seal_count` counts distinct Bitcoin outpoints holding the\nasset, which overstates holders whenever one address holds several.",
         "operationId": "list_assets",
         "parameters": [
           {
@@ -272,7 +282,7 @@
           {
             "name": "address",
             "in": "path",
-            "description": "Bitcoin address",
+            "description": "Bitcoin address on the network this index follows",
             "required": true,
             "schema": {
               "type": "string"
@@ -304,6 +314,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AddressAssetsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a valid address on the network this index follows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -342,7 +362,7 @@
           {
             "name": "address",
             "in": "path",
-            "description": "Bitcoin address",
+            "description": "Bitcoin address on the network this index follows",
             "required": true,
             "schema": {
               "type": "string"
@@ -374,6 +394,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BalanceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a valid address on the network this index follows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

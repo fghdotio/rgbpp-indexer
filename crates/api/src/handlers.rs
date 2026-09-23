@@ -8,7 +8,7 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use rgbpp_store::state::CKB_STREAM;
-use rgbpp_types::bitcoin::{BtcOutPoint, BtcTxid};
+use rgbpp_types::bitcoin::{validate_address, BtcOutPoint, BtcTxid};
 use rgbpp_types::ckb::H256;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -241,13 +241,14 @@ pub struct AddressAssetsResponse {
 // the first external consumer -- adding a 503 to an endpoint that has always returned
 // 200 is a breaking change afterwards. See README "Known limitations".
 #[utoipa::path(get, path = "/v1/rgbpp/assets/by-btc-address/{address}", tag = "addresses",
-    params(("address" = String, Path, description = "Bitcoin address"), AddressQuery),
-    responses((status = 200, body = AddressAssetsResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
+    params(("address" = String, Path, description = "Bitcoin address on the network this index follows"), AddressQuery),
+    responses((status = 200, body = AddressAssetsResponse), (status = 400, description = "Not a valid address on the network this index follows", body = ErrorResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn assets_by_btc_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
     Query(query): Query<AddressQuery>,
 ) -> ApiResult<Json<AddressAssetsResponse>> {
+    check_address(&state, &address)?;
     let engine = &state.engine;
 
     let reconciliation = if query.reconcile(engine.config.reconcile.enabled) {
@@ -285,13 +286,14 @@ pub struct BalanceResponse {
 
 /// Balances for an address, computed from the cell table on every request.
 #[utoipa::path(get, path = "/v1/rgbpp/balance/by-btc-address/{address}", tag = "addresses",
-    params(("address" = String, Path, description = "Bitcoin address"), BalanceQuery),
-    responses((status = 200, body = BalanceResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
+    params(("address" = String, Path, description = "Bitcoin address on the network this index follows"), BalanceQuery),
+    responses((status = 200, body = BalanceResponse), (status = 400, description = "Not a valid address on the network this index follows", body = ErrorResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn balance_by_btc_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
     Query(query): Query<BalanceQuery>,
 ) -> ApiResult<Json<BalanceResponse>> {
+    check_address(&state, &address)?;
     let engine = &state.engine;
     if engine.config.reconcile.enabled && query.reconcile.unwrap_or(true) {
         engine.reconciler.reconcile_address(&address).await?;
@@ -450,10 +452,10 @@ pub struct AssetsResponse {
 
 /// Every distinct asset the index has seen, by type script hash.
 ///
-/// Grouped over the cell table on read, like every other aggregate here. Note what
-/// this cannot answer: an asset has no name, and no holder count — the indexer learns
-/// Bitcoin addresses opportunistically, so `live_seal_count` (distinct outpoints
-/// currently holding it) is the honest stand-in.
+/// Grouped over the cell table on read, like every other aggregate here. There is no
+/// name: a type script hash is an asset's whole identity here. There is no holder
+/// count either. `live_seal_count` counts distinct Bitcoin outpoints holding the
+/// asset, which overstates holders whenever one address holds several.
 #[utoipa::path(get, path = "/v1/rgbpp/assets", tag = "assets",
     params(AssetsQuery),
     responses((status = 200, body = AssetsResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
@@ -548,13 +550,14 @@ pub struct ActivityQuery {
 /// A very recent transition appears here a few minutes after it confirms; use
 /// `/v1/rgbpp/transactions/{btc_txid}` to watch one in flight.
 #[utoipa::path(get, path = "/v1/rgbpp/activity/by-btc-address/{address}", tag = "addresses",
-    params(("address" = String, Path, description = "Bitcoin address"), ActivityQuery),
-    responses((status = 200, body = AddressActivityDto), (status = 500, description = "Internal error", body = ErrorResponse)))]
+    params(("address" = String, Path, description = "Bitcoin address on the network this index follows"), ActivityQuery),
+    responses((status = 200, body = AddressActivityDto), (status = 400, description = "Not a valid address on the network this index follows", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn activity_by_btc_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
     Query(query): Query<ActivityQuery>,
 ) -> ApiResult<Json<AddressActivityDto>> {
+    check_address(&state, &address)?;
     let limit = state.page_size(query.limit);
     let store = &state.engine.store;
 
@@ -586,6 +589,18 @@ pub async fn anomalies(
         .list_anomalies(query.kind.as_deref(), query.include_resolved, limit)
         .await?;
     Ok(Json(rows.into_iter().map(AnomalyDto::from).collect()))
+}
+
+/// Refuse anything that is not an address on this index's network.
+///
+/// Two reasons, one per kind of endpoint. Where the address is sent to the Bitcoin
+/// data source it is spliced into a URL path, and axum has already decoded `%2F`, so
+/// an unchecked `x/../..` steers that request to another path on the data source's
+/// host. Where it is only looked up locally, a string that cannot be an address would
+/// otherwise get an empty result that reads as "no activity".
+fn check_address(state: &AppState, address: &str) -> ApiResult<()> {
+    validate_address(address, state.engine.config.btc.network())
+        .map_err(|e| ApiError::bad_request(e.to_string()))
 }
 
 fn parse_outpoint(s: &str) -> ApiResult<BtcOutPoint> {

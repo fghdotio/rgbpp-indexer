@@ -11,6 +11,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::asset::AssetScripts;
+use crate::bitcoin::BtcNetwork;
 use crate::error::{Error, Result};
 use crate::protocol::ProtocolScripts;
 
@@ -254,6 +255,12 @@ pub enum BtcSourceKind {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BtcConfig {
     pub source: BtcSourceKind,
+    /// Network that Bitcoin addresses from callers are checked against.
+    ///
+    /// Defaults from `general.network`. Resolved while loading, so after that it is
+    /// always set; read it through [`BtcConfig::network`].
+    #[serde(default)]
+    pub network: Option<BtcNetwork>,
     /// Base URL including any API path prefix, e.g. `https://mempool.space/api`.
     pub base_url: String,
     #[serde(default = "default_request_timeout_secs")]
@@ -285,6 +292,11 @@ fn default_observation_ttl_secs() -> u64 {
     60
 }
 impl BtcConfig {
+    pub fn network(&self) -> BtcNetwork {
+        self.network
+            .expect("btc.network is resolved while the config is loaded")
+    }
+
     pub fn request_timeout(&self) -> Duration {
         Duration::from_secs(self.request_timeout_secs)
     }
@@ -453,6 +465,7 @@ impl Config {
         let mut config: Config =
             toml::from_str(s).map_err(|e| Error::Config(format!("invalid TOML: {e}")))?;
         config.apply_env_overrides();
+        config.resolve_btc_network()?;
         config.validate()?;
         Ok(config)
     }
@@ -551,6 +564,25 @@ impl Config {
         if let Some(v) = get("DB_MAX_CONNECTIONS") {
             apply_numeric("DB_MAX_CONNECTIONS", &v, &mut self.database.max_connections);
         }
+    }
+
+    /// Fill in `btc.network` from `general.network` when it is not set.
+    ///
+    /// Addresses are validated against it, and a wrong guess would reject every real
+    /// address or accept another network's, so a label that names no known network is
+    /// a startup error rather than a default.
+    fn resolve_btc_network(&mut self) -> Result<()> {
+        if self.btc.network.is_some() {
+            return Ok(());
+        }
+        let label = &self.general.network;
+        self.btc.network = Some(BtcNetwork::from_label(label).ok_or_else(|| {
+            Error::Config(format!(
+                "general.network = {label:?} names no Bitcoin network; set btc.network \
+                 to one of mainnet, testnet, signet or regtest"
+            ))
+        })?);
+        Ok(())
     }
 
     fn validate(&self) -> Result<()> {
@@ -729,6 +761,49 @@ hash_type = "type"
         assert_eq!(config.btc.source, BtcSourceKind::Esplora);
         assert_eq!(config.btc.max_concurrency, 8);
         assert_eq!(config.ckb.page_limit, 200, "a negative value is not a u32");
+    }
+
+    #[test]
+    fn btc_network_defaults_from_the_general_label() {
+        let config = Config::from_toml_str(MINIMAL).unwrap();
+        assert_eq!(config.general.network, "mainnet");
+        assert_eq!(config.btc.network(), BtcNetwork::Mainnet);
+
+        let testnet = MINIMAL.replace(
+            "[database]",
+            "[general]\nnetwork = \"testnet\"\n\n[database]",
+        );
+        assert_eq!(
+            Config::from_toml_str(&testnet).unwrap().btc.network(),
+            BtcNetwork::Testnet
+        );
+    }
+
+    #[test]
+    fn explicit_btc_network_wins() {
+        let config = MINIMAL
+            .replace(
+                "[database]",
+                "[general]\nnetwork = \"staging\"\n\n[database]",
+            )
+            .replace(
+                "source = \"esplora\"",
+                "source = \"esplora\"\nnetwork = \"signet\"",
+            );
+        assert_eq!(
+            Config::from_toml_str(&config).unwrap().btc.network(),
+            BtcNetwork::Signet
+        );
+    }
+
+    #[test]
+    fn unknown_label_without_btc_network_fails_to_load() {
+        let config = MINIMAL.replace(
+            "[database]",
+            "[general]\nnetwork = \"staging\"\n\n[database]",
+        );
+        let err = Config::from_toml_str(&config).unwrap_err().to_string();
+        assert!(err.contains("btc.network"), "{err}");
     }
 
     #[test]

@@ -53,8 +53,9 @@ Bitcoin reorg degrade to marking rows stale rather than rewriting history, and i
 also why the existing freshness machinery (the daily sweep, the on-demand paths)
 already corrects such a reorg eventually, without any reorg-specific code.
 
-`btc_outpoints.address` is learned opportunistically and only for outpoints that
-actually carry an RGB++ cell. A wallet address may have thousands of UTXOs and almost
+`btc_outpoints.address` is resolved from the transaction that funded each binding
+(see [indexing.md](indexing.md)), and only for outpoints that actually carry an
+RGB++ cell. A wallet address may have thousands of UTXOs and almost
 no bindings; recording all of them would make the table grow with wallet activity
 instead of protocol activity.
 

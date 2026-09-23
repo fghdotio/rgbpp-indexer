@@ -71,9 +71,8 @@ impl Store {
     ///
     /// Grouped rather than listed: an asset appears in a new cell every time it
     /// moves, so `SELECT DISTINCT type_hash` is the only way to answer "which assets
-    /// exist". `live_seal_count` counts the Bitcoin outpoints currently holding it,
-    /// which is as close to a holder count as RGB++ state gets — an address can own
-    /// many seals, and the indexer only learns addresses opportunistically.
+    /// exist". `live_seal_count` counts the Bitcoin outpoints currently holding it.
+    /// That is not a holder count: an address can own many seals.
     pub async fn list_assets(
         &self,
         asset_kinds: &[String],

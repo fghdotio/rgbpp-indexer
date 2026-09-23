@@ -4,6 +4,8 @@ use axum::Json;
 use thiserror::Error;
 use tracing::error;
 
+use rgbpp_indexer::IndexerError;
+
 use crate::dto::{ErrorBody, ErrorKind, ErrorResponse};
 
 #[derive(Debug, Error)]
@@ -43,6 +45,12 @@ impl ApiError {
             // saying so lets clients retry instead of treating it as a bad request.
             ApiError::Btc(e) if e.is_transient() => StatusCode::BAD_GATEWAY,
             ApiError::Btc(_) | ApiError::Ckb(_) => StatusCode::BAD_GATEWAY,
+            // The same failure reached through the indexer means the same thing. Without
+            // this, a data source timing out during reconciliation surfaced as a 500,
+            // which clients are told not to retry.
+            ApiError::Indexer(IndexerError::Btc(_) | IndexerError::Ckb(_)) => {
+                StatusCode::BAD_GATEWAY
+            }
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -73,3 +81,25 @@ impl IntoResponse for ApiError {
 }
 
 pub type ApiResult<T> = std::result::Result<T, ApiError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rgbpp_btc::BtcError;
+
+    #[test]
+    fn upstream_failures_keep_their_status_through_the_indexer() {
+        let upstream = || BtcError::RateLimited { url: "u".into() };
+        assert_eq!(ApiError::Btc(upstream()).status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            ApiError::Indexer(IndexerError::Btc(upstream())).status(),
+            StatusCode::BAD_GATEWAY
+        );
+        // Genuinely internal failures stay internal.
+        assert_eq!(
+            ApiError::Indexer(IndexerError::Inconsistent("x".into())).status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(ApiError::bad_request("x").status(), StatusCode::BAD_REQUEST);
+    }
+}

@@ -368,5 +368,6 @@ do not "fix" them by recomputing the expected values.
   is a breaking change, so deferring past that point turns a cheap addition into a
   versioning exercise.
 - **Blockbook spender resolution is capped** at 5 pages of address history.
-- Bitcoin **addresses are learned opportunistically**, so an address diff is only as
-  good as what has been observed for it before.
+- **Binding ownership is resolved in the background** from funding transactions.
+  Until that backfill catches up (`unlabelled` in the heartbeat), address history and
+  the address diff can miss bindings.
