@@ -236,8 +236,16 @@ pub struct AssetDto {
     pub asset_kind: String,
     pub cell_count: i64,
     pub live_cell_count: i64,
-    /// Distinct Bitcoin outpoints currently holding it.
+    /// Distinct Bitcoin outpoints currently holding it. Overstates holders whenever
+    /// one address holds several; see `holder_count`.
     pub live_seal_count: i64,
+    /// Distinct Bitcoin addresses owning a live seal. BTC time lock cells are not
+    /// counted: they are on their way to a CKB lock and have no Bitcoin owner.
+    /// A lower bound while `unlabelled_seal_count` is non-zero.
+    pub holder_count: i64,
+    /// Live seals whose owning address is not resolved yet. Falls to zero as the
+    /// address backfill catches up.
+    pub unlabelled_seal_count: i64,
     /// Null for non-fungible assets.
     pub total_amount: Option<String>,
     pub first_block_number: i64,
@@ -254,6 +262,8 @@ impl From<AssetRow> for AssetDto {
             cell_count: row.cell_count,
             live_cell_count: row.live_cell_count,
             live_seal_count: row.live_seal_count,
+            holder_count: row.holder_count,
+            unlabelled_seal_count: row.unlabelled_seal_count,
             total_amount: if is_fungible {
                 Some(
                     row.total_amount

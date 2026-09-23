@@ -113,6 +113,16 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -204,7 +214,7 @@
           "assets"
         ],
         "summary": "Every distinct asset the index has seen, by type script hash.",
-        "description": "Grouped over the cell table on read, like every other aggregate here. There is no\nname: a type script hash is an asset's whole identity here. There is no holder\ncount either. `live_seal_count` counts distinct Bitcoin outpoints holding the\nasset, which overstates holders whenever one address holds several.",
+        "description": "Grouped over the cell table on read, like every other aggregate here. There is no\nname: a type script hash is an asset's whole identity here.",
         "operationId": "list_assets",
         "parameters": [
           {
@@ -340,6 +350,58 @@
           },
           "502": {
             "description": "Bitcoin data source or CKB node unavailable; safe to retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/assets:batch": {
+      "post": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "Summaries for many assets in one call.",
+        "description": "For a caller that already has a list of assets, such as a gateway resolving a\npage of coins, and needs each one's holders and supply without one request per\nasset. Answers from the index alone. At most `api.max_page_size` hashes.",
+        "operationId": "assets_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetsBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetsBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
             "content": {
               "application/json": {
                 "schema": {
@@ -653,6 +715,58 @@
         }
       }
     },
+    "/v1/rgbpp/cells:batch": {
+      "post": {
+        "tags": [
+          "cells"
+        ],
+        "summary": "Cells bound to many Bitcoin UTXOs in one call.",
+        "description": "The batch form of `/v1/rgbpp/cells/by-btc-utxo/{txid}/{vout}`, without its\n`refresh`: re-observing each outpoint on Bitcoin would put one data-source request\nper key behind a single response. Use `POST /v1/rgbpp/refresh` for that. At most\n`api.max_page_size` outpoints.",
+        "operationId": "cells_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CellsBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellsBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/rgbpp/refresh": {
       "post": {
         "tags": [
@@ -810,6 +924,16 @@
               }
             }
           },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -864,6 +988,58 @@
           },
           "404": {
             "description": "Not in the index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/transitions:batch": {
+      "post": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Transitions for many CKB transactions in one call.",
+        "description": "The batch form of `/v1/rgbpp/transitions/{tx_hash}`. Also answers \"which of these\nCKB transactions are RGB++\" for a block or address listing. At most\n`api.max_page_size` hashes.",
+        "operationId": "transitions_batch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionsBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransitionsBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
             "content": {
               "application/json": {
                 "schema": {
@@ -1304,11 +1480,13 @@
           "cell_count",
           "first_block_number",
           "first_ckb_tx_hash",
+          "holder_count",
           "last_block_number",
           "live_cell_count",
           "live_seal_count",
           "total_amount",
-          "type_hash"
+          "type_hash",
+          "unlabelled_seal_count"
         ],
         "properties": {
           "asset_kind": {
@@ -1325,6 +1503,11 @@
           "first_ckb_tx_hash": {
             "type": "string"
           },
+          "holder_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Distinct Bitcoin addresses owning a live seal. BTC time lock cells are not\ncounted: they are on their way to a CKB lock and have no Bitcoin owner.\nA lower bound while `unlabelled_seal_count` is non-zero."
+          },
           "last_block_number": {
             "type": "integer",
             "format": "int64"
@@ -1336,7 +1519,7 @@
           "live_seal_count": {
             "type": "integer",
             "format": "int64",
-            "description": "Distinct Bitcoin outpoints currently holding it."
+            "description": "Distinct Bitcoin outpoints currently holding it. Overstates holders whenever\none address holds several; see `holder_count`."
           },
           "total_amount": {
             "type": [
@@ -1347,6 +1530,48 @@
           },
           "type_hash": {
             "type": "string"
+          },
+          "unlabelled_seal_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Live seals whose owning address is not resolved yet. Falls to zero as the\naddress backfill catches up."
+          }
+        }
+      },
+      "AssetsBatchRequest": {
+        "type": "object",
+        "required": [
+          "type_hashes"
+        ],
+        "properties": {
+          "type_hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Type script hashes, `0x`-prefixed."
+          }
+        }
+      },
+      "AssetsBatchResponse": {
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/AssetDto"
+                }
+              ]
+            },
+            "description": "`assets[i]` answers `type_hashes[i]`; null when the index has never seen it."
           }
         }
       },
@@ -1587,6 +1812,46 @@
                 "$ref": "#/components/schemas/ScriptDto"
               }
             ]
+          }
+        }
+      },
+      "CellsBatchRequest": {
+        "type": "object",
+        "required": [
+          "btc_outpoints"
+        ],
+        "properties": {
+          "btc_outpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Outpoints as `txid:vout`.",
+            "example": [
+              "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:0"
+            ]
+          },
+          "include_spent": {
+            "type": "boolean",
+            "description": "Include cells already consumed on CKB."
+          }
+        }
+      },
+      "CellsBatchResponse": {
+        "type": "object",
+        "required": [
+          "cells"
+        ],
+        "properties": {
+          "cells": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/CellDto"
+              }
+            },
+            "description": "`cells[i]` holds the cells bound to `btc_outpoints[i]`, empty when none are."
           }
         }
       },
@@ -2236,6 +2501,43 @@
           }
         ],
         "description": "Where an RGB++ transaction has got to, across both chains."
+      },
+      "TransitionsBatchRequest": {
+        "type": "object",
+        "required": [
+          "ckb_tx_hashes"
+        ],
+        "properties": {
+          "ckb_tx_hashes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CKB transaction hashes, `0x`-prefixed."
+          }
+        }
+      },
+      "TransitionsBatchResponse": {
+        "type": "object",
+        "required": [
+          "transitions"
+        ],
+        "properties": {
+          "transitions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/TransitionDto"
+                }
+              ]
+            },
+            "description": "`transitions[i]` answers `ckb_tx_hashes[i]`; null when that transaction is not\nan indexed RGB++ transition."
+          }
+        }
       }
     }
   },

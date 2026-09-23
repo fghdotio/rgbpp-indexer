@@ -771,6 +771,78 @@ async fn balances_on_read() {
     assert_eq!(optimistic[0].cell_count, 3);
 }
 
+/// A holder is an owning address, not a seal: two seals at one address are one holder.
+/// Spent cells, BTC time lock cells and unresolved bindings are not holders, and the
+/// last are reported so the count can be read as a lower bound.
+#[tokio::test]
+async fn asset_holders() {
+    let Some(store) = store_for("asset_holders").await else {
+        return;
+    };
+    store.init_stream(CKB_STREAM, 100).await.unwrap();
+
+    let mut b = batch(100);
+    b.cells.push(rgbpp_cell(1, 0, 0x11, 0, 100)); // alice
+    b.cells.push(rgbpp_cell(1, 1, 0x11, 1, 100)); // alice again
+    b.cells.push(rgbpp_cell(1, 2, 0x22, 0, 100)); // bob
+    b.cells.push(rgbpp_cell(1, 3, 0x33, 0, 100)); // not resolved yet
+    b.cells.push(rgbpp_cell(1, 4, 0x44, 0, 100)); // carol, spent below
+    let mut in_transit = rgbpp_cell(1, 5, 0x66, 0, 100);
+    in_transit.lock_kind = LockKind::BtcTime;
+    in_transit.btc_vout = None;
+    in_transit.btc_time_after = Some(6);
+    b.cells.push(in_transit);
+    let mut other = rgbpp_cell(2, 0, 0x55, 0, 100); // alice, a different asset
+    other.type_hash = Some(hash(0xbb));
+    b.cells.push(other);
+    store.apply_batch(&b).await.unwrap();
+
+    for (funding, vout, address) in [
+        (0x11, 0, "alice"),
+        (0x11, 1, "alice"),
+        (0x22, 0, "bob"),
+        (0x44, 0, "carol"),
+        (0x55, 0, "alice"),
+    ] {
+        store
+            .record_binding_addresses(&txid(funding), &[(vout, address.to_string())])
+            .await
+            .unwrap();
+    }
+
+    let mut spend = batch(101);
+    spend.spends.push(CellSpend {
+        ckb_tx_hash: hash(1),
+        output_index: 4,
+        consumed_block_number: 101,
+        consumed_block_hash: hash(101),
+        consumed_tx_hash: hash(3),
+        consumed_tx_index: 0,
+        consumed_input_index: 0,
+    });
+    store.apply_batch(&spend).await.unwrap();
+
+    let kinds = vec!["xudt".to_string()];
+    let listed = store.list_assets(&kinds, 10, 0).await.unwrap();
+    let a = listed.iter().find(|r| r.type_hash == hash(0xaa)).unwrap();
+    assert_eq!(a.holder_count, 2, "alice and bob");
+    assert_eq!(a.unlabelled_seal_count, 1);
+    assert_eq!(a.live_seal_count, 5, "four RGB++ seals and the time lock");
+    let b = listed.iter().find(|r| r.type_hash == hash(0xbb)).unwrap();
+    assert_eq!((b.holder_count, b.unlabelled_seal_count), (1, 0));
+
+    // Paging still applies before holders are counted.
+    assert_eq!(store.list_assets(&kinds, 1, 0).await.unwrap().len(), 1);
+
+    let by_hash = store
+        .assets_by_type_hashes(&[hash(0xbb), hash(0xcc)])
+        .await
+        .unwrap();
+    assert_eq!(by_hash.len(), 1, "an unseen hash is absent");
+    assert_eq!(by_hash[0].type_hash, hash(0xbb));
+    assert_eq!(by_hash[0].holder_count, 1);
+}
+
 #[tokio::test]
 async fn transition_commitment_status() {
     let Some(store) = store_for("transitions").await else {
@@ -811,6 +883,12 @@ async fn transition_commitment_status() {
         1
     );
     assert_eq!(store.recent_transitions(10).await.unwrap().len(), 1);
+
+    let batch = store
+        .transitions_by_ckb_txs(&[hash(9), hash(1), hash(1)])
+        .await
+        .unwrap();
+    assert_eq!(batch.len(), 1, "misses are absent, repeats collapse");
 }
 
 /// Activity is the join `address -> bindings -> cells -> transitions`. The half that

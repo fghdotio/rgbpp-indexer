@@ -20,6 +20,21 @@ impl Store {
             .await?)
     }
 
+    /// Transitions for several CKB transactions at once. Hashes that are not
+    /// transitions are simply absent.
+    pub async fn transitions_by_ckb_txs(
+        &self,
+        ckb_tx_hashes: &[Vec<u8>],
+    ) -> Result<Vec<TransitionRow>> {
+        let sql = format!(
+            "SELECT {TRANSITION_COLUMNS} FROM rgbpp_transitions WHERE ckb_tx_hash = ANY($1)"
+        );
+        Ok(sqlx::query_as::<Postgres, TransitionRow>(&sql)
+            .bind(ckb_tx_hashes)
+            .fetch_all(self.pool())
+            .await?)
+    }
+
     /// Transitions authorised by a Bitcoin transaction. Usually one, but a Bitcoin
     /// transaction can carry commitments for several CKB transactions over time
     /// (for example a retried or replaced CKB submission), so this returns a list.

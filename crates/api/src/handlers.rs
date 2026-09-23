@@ -5,8 +5,10 @@
 //! data source first, because the indexed range deliberately stops `REORG_LAG` blocks
 //! short of the tip and cannot see an uncommitted CKB transaction at all.
 
-use axum::extract::{Path, Query, State};
-use axum::Json;
+use std::collections::HashMap;
+
+use axum::extract::State;
+use rgbpp_store::models::{AssetRow, CellRow, TransitionRow};
 use rgbpp_store::state::CKB_STREAM;
 use rgbpp_types::bitcoin::{validate_address, BtcOutPoint, BtcTxid};
 use rgbpp_types::ckb::H256;
@@ -15,6 +17,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::dto::*;
 use crate::error::{ApiError, ApiResult};
+use crate::extract::{Json, Path, Query};
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -453,9 +456,7 @@ pub struct AssetsResponse {
 /// Every distinct asset the index has seen, by type script hash.
 ///
 /// Grouped over the cell table on read, like every other aggregate here. There is no
-/// name: a type script hash is an asset's whole identity here. There is no holder
-/// count either. `live_seal_count` counts distinct Bitcoin outpoints holding the
-/// asset, which overstates holders whenever one address holds several.
+/// name: a type script hash is an asset's whole identity here.
 #[utoipa::path(get, path = "/v1/rgbpp/assets", tag = "assets",
     params(AssetsQuery),
     responses((status = 200, body = AssetsResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
@@ -503,10 +504,149 @@ pub async fn list_assets(
     }))
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AssetsBatchRequest {
+    /// Type script hashes, `0x`-prefixed.
+    pub type_hashes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AssetsBatchResponse {
+    /// `assets[i]` answers `type_hashes[i]`; null when the index has never seen it.
+    pub assets: Vec<Option<AssetDto>>,
+}
+
+/// Summaries for many assets in one call.
+///
+/// For a caller that already has a list of assets, such as a gateway resolving a
+/// page of coins, and needs each one's holders and supply without one request per
+/// asset. Answers from the index alone. At most `api.max_page_size` hashes.
+#[utoipa::path(post, path = "/v1/rgbpp/assets:batch", tag = "assets",
+    request_body = AssetsBatchRequest,
+    responses((status = 200, body = AssetsBatchResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
+pub async fn assets_batch(
+    State(state): State<AppState>,
+    Json(request): Json<AssetsBatchRequest>,
+) -> ApiResult<Json<AssetsBatchResponse>> {
+    let keys = parse_batch(&state, "type_hashes", &request.type_hashes, |s| {
+        H256::from_hex(s).map(|h| h.to_vec())
+    })?;
+    let rows = state.engine.store.assets_by_type_hashes(&keys).await?;
+
+    let by_hash: HashMap<&[u8], &AssetRow> = rows
+        .iter()
+        .map(|row| (row.type_hash.as_slice(), row))
+        .collect();
+    // Looked up rather than moved out: a caller may ask for the same key twice.
+    let assets = keys
+        .iter()
+        .map(|k| by_hash.get(k.as_slice()).map(|&row| row.clone().into()))
+        .collect();
+    Ok(Json(AssetsBatchResponse { assets }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CellsBatchRequest {
+    /// Outpoints as `txid:vout`.
+    #[schema(example = json!(["4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:0"]))]
+    pub btc_outpoints: Vec<String>,
+    /// Include cells already consumed on CKB.
+    #[serde(default)]
+    pub include_spent: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CellsBatchResponse {
+    /// `cells[i]` holds the cells bound to `btc_outpoints[i]`, empty when none are.
+    pub cells: Vec<Vec<CellDto>>,
+}
+
+/// Cells bound to many Bitcoin UTXOs in one call.
+///
+/// The batch form of `/v1/rgbpp/cells/by-btc-utxo/{txid}/{vout}`, without its
+/// `refresh`: re-observing each outpoint on Bitcoin would put one data-source request
+/// per key behind a single response. Use `POST /v1/rgbpp/refresh` for that. At most
+/// `api.max_page_size` outpoints.
+#[utoipa::path(post, path = "/v1/rgbpp/cells:batch", tag = "cells",
+    request_body = CellsBatchRequest,
+    responses((status = 200, body = CellsBatchResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
+pub async fn cells_batch(
+    State(state): State<AppState>,
+    Json(request): Json<CellsBatchRequest>,
+) -> ApiResult<Json<CellsBatchResponse>> {
+    let keys = parse_batch(&state, "btc_outpoints", &request.btc_outpoints, |s| {
+        parse_outpoint(s).map(|o| (o.txid.to_display_vec(), o.vout as i32))
+    })?;
+    let (txids, vouts): (Vec<Vec<u8>>, Vec<i32>) = keys.iter().cloned().unzip();
+    let rows = state
+        .engine
+        .store
+        .cells_by_btc_outpoints(&txids, &vouts, request.include_spent)
+        .await?;
+
+    let mut by_outpoint: HashMap<(&[u8], i32), Vec<&CellRow>> = HashMap::new();
+    for row in &rows {
+        // Every row matched an outpoint key, so the vout is always present.
+        let key = (row.btc_txid.as_slice(), row.btc_vout.unwrap_or_default());
+        by_outpoint.entry(key).or_default().push(row);
+    }
+    let cells = keys
+        .iter()
+        .map(|(txid, vout)| {
+            by_outpoint
+                .get(&(txid.as_slice(), *vout))
+                .map(|rows| rows.iter().map(|&row| row.clone().into()).collect())
+                .unwrap_or_default()
+        })
+        .collect();
+    Ok(Json(CellsBatchResponse { cells }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct TransitionsBatchRequest {
+    /// CKB transaction hashes, `0x`-prefixed.
+    pub ckb_tx_hashes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TransitionsBatchResponse {
+    /// `transitions[i]` answers `ckb_tx_hashes[i]`; null when that transaction is not
+    /// an indexed RGB++ transition.
+    pub transitions: Vec<Option<TransitionDto>>,
+}
+
+/// Transitions for many CKB transactions in one call.
+///
+/// The batch form of `/v1/rgbpp/transitions/{tx_hash}`. Also answers "which of these
+/// CKB transactions are RGB++" for a block or address listing. At most
+/// `api.max_page_size` hashes.
+#[utoipa::path(post, path = "/v1/rgbpp/transitions:batch", tag = "transactions",
+    request_body = TransitionsBatchRequest,
+    responses((status = 200, body = TransitionsBatchResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
+pub async fn transitions_batch(
+    State(state): State<AppState>,
+    Json(request): Json<TransitionsBatchRequest>,
+) -> ApiResult<Json<TransitionsBatchResponse>> {
+    let keys = parse_batch(&state, "ckb_tx_hashes", &request.ckb_tx_hashes, |s| {
+        H256::from_hex(s).map(|h| h.to_vec())
+    })?;
+    let rows = state.engine.store.transitions_by_ckb_txs(&keys).await?;
+
+    let by_hash: HashMap<&[u8], &TransitionRow> = rows
+        .iter()
+        .map(|row| (row.ckb_tx_hash.as_slice(), row))
+        .collect();
+    let transitions = keys
+        .iter()
+        .map(|k| by_hash.get(k.as_slice()).map(|&row| row.clone().into()))
+        .collect();
+    Ok(Json(TransitionsBatchResponse { transitions }))
+}
+
 /// Most recent RGB++ state transitions, newest first.
 #[utoipa::path(get, path = "/v1/rgbpp/transitions", tag = "transactions",
     params(LimitQuery),
-    responses((status = 200, body = Vec<TransitionDto>), (status = 500, description = "Internal error", body = ErrorResponse)))]
+    responses((status = 200, body = Vec<TransitionDto>), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn recent_transitions(
     State(state): State<AppState>,
     Query(query): Query<LimitQuery>,
@@ -577,7 +717,7 @@ pub async fn activity_by_btc_address(
 /// commitments that do not match.
 #[utoipa::path(get, path = "/v1/anomalies", tag = "ops",
     params(AnomalyQuery),
-    responses((status = 200, body = Vec<AnomalyDto>), (status = 500, description = "Internal error", body = ErrorResponse)))]
+    responses((status = 200, body = Vec<AnomalyDto>), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn anomalies(
     State(state): State<AppState>,
     Query(query): Query<AnomalyQuery>,
@@ -601,6 +741,29 @@ pub async fn anomalies(
 fn check_address(state: &AppState, address: &str) -> ApiResult<()> {
     validate_address(address, state.engine.config.btc.network())
         .map_err(|e| ApiError::bad_request(e.to_string()))
+}
+
+/// Parse every key of a batch request, refusing the whole batch on the first bad one.
+///
+/// Answers are aligned with the request, so a caller maps them back by position. That
+/// only works if every position is answerable, hence refusing rather than dropping.
+fn parse_batch<T, E: std::fmt::Display>(
+    state: &AppState,
+    field: &str,
+    keys: &[String],
+    parse: impl Fn(&str) -> Result<T, E>,
+) -> ApiResult<Vec<T>> {
+    let max = state.engine.config.api.max_page_size;
+    if keys.len() as i64 > max {
+        return Err(ApiError::bad_request(format!(
+            "`{field}` has {} entries; at most {max} per request",
+            keys.len()
+        )));
+    }
+    keys.iter()
+        .enumerate()
+        .map(|(i, key)| parse(key).map_err(|e| ApiError::bad_request(format!("{field}[{i}]: {e}"))))
+        .collect()
 }
 
 fn parse_outpoint(s: &str) -> ApiResult<BtcOutPoint> {

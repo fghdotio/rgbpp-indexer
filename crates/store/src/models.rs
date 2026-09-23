@@ -358,13 +358,18 @@ pub struct AssetRow {
     /// holdings over time, not holders.
     pub cell_count: i64,
     pub live_cell_count: i64,
-    /// Distinct Bitcoin outpoints currently holding it — the closest thing to a
-    /// holder count that RGB++ state supports.
+    /// Distinct Bitcoin outpoints currently holding it. Overstates holders whenever
+    /// one address holds several.
     pub live_seal_count: i64,
     pub total_amount: Option<BigDecimal>,
     pub first_block_number: i64,
     pub first_ckb_tx_hash: Vec<u8>,
     pub last_block_number: i64,
+    /// Distinct Bitcoin addresses owning a live seal. A lower bound while
+    /// `unlabelled_seal_count` is non-zero.
+    pub holder_count: i64,
+    /// Live seals whose owning address the backfill has not resolved yet.
+    pub unlabelled_seal_count: i64,
 }
 
 /// Convert a `u128` UDT amount to the NUMERIC representation.

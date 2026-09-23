@@ -284,6 +284,9 @@ The knobs that matter most:
 | `GET /v1/rgbpp/cells/by-ckb-out-point/{tx_hash}/{index}` | |
 | `GET /v1/rgbpp/activity/by-btc-address/{address}` | RGB++ history, newest first; keyset `?cursor=`, `?limit=` |
 | `GET /v1/rgbpp/transitions` · `/{ckb_tx_hash}` | |
+| `POST /v1/rgbpp/assets:batch` | `{"type_hashes": [...]}` → `assets[i]` or `null` |
+| `POST /v1/rgbpp/cells:batch` | `{"btc_outpoints": ["txid:vout"], "include_spent": false}` → `cells[i]` |
+| `POST /v1/rgbpp/transitions:batch` | `{"ckb_tx_hashes": [...]}` → `transitions[i]` or `null` |
 | `POST /v1/rgbpp/refresh` | `{"outpoints": ["txid:vout"], "synchronous": true}` |
 | `GET /v1/anomalies` | `?kind=`, `?include_resolved=true` |
 
@@ -291,6 +294,16 @@ The knobs that matter most:
 identity here is its type script hash; the cells that publish token metadata live
 under other locks and are not indexed, so a name would have to be invented. A client
 that needs one resolves it itself.
+
+`holder_count` on an asset counts distinct owning Bitcoin addresses over live RGB++
+cells. Ownership comes from the address backfill, so until that catches up the count
+is a lower bound, and `unlabelled_seal_count` says by how many seals.
+
+The `:batch` endpoints answer in request order, one entry per key, so a gateway can
+hand them a DataLoader batch and map answers back by position. They read the index
+only, never Bitcoin; the address and transaction-status endpoints, which do, stay
+one key per call. A batch takes at most `api.max_page_size` keys, and one malformed
+key fails the whole batch with 400.
 
 Amounts and capacities are decimal **strings** — a `u128` UDT amount does not survive
 a JSON number. CKB hashes are `0x`-prefixed; Bitcoin txids are bare hex, matching what

@@ -24,3 +24,6 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }

@@ -71,40 +71,34 @@ impl Store {
     ///
     /// Grouped rather than listed: an asset appears in a new cell every time it
     /// moves, so `SELECT DISTINCT type_hash` is the only way to answer "which assets
-    /// exist". `live_seal_count` counts the Bitcoin outpoints currently holding it.
-    /// That is not a holder count: an address can own many seals.
+    /// exist".
     pub async fn list_assets(
         &self,
         asset_kinds: &[String],
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AssetRow>> {
-        Ok(sqlx::query_as::<Postgres, AssetRow>(
-            "SELECT type_hash,
-                    asset_kind,
-                    COUNT(*)                                                   AS cell_count,
-                    COUNT(*) FILTER (WHERE consumed_block_number IS NULL)      AS live_cell_count,
-                    COUNT(DISTINCT (btc_txid, btc_vout))
-                      FILTER (WHERE consumed_block_number IS NULL)             AS live_seal_count,
-                    SUM(COALESCE(udt_amount, 0))
-                      FILTER (WHERE consumed_block_number IS NULL)             AS total_amount,
-                    MIN(created_block_number)                                  AS first_block_number,
-                    (ARRAY_AGG(ckb_tx_hash ORDER BY created_block_number,
-                                                    created_tx_index,
-                                                    output_index))[1]          AS first_ckb_tx_hash,
-                    MAX(created_block_number)                                  AS last_block_number
-               FROM rgbpp_cells
-              WHERE type_hash IS NOT NULL
-                AND asset_kind = ANY($1)
-              GROUP BY type_hash, asset_kind
-              ORDER BY last_block_number DESC, live_cell_count DESC, type_hash
-              LIMIT $2 OFFSET $3",
-        )
-        .bind(asset_kinds)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(self.pool())
-        .await?)
+        let sql = asset_summary_sql(
+            "asset_kind = ANY($1)",
+            "ORDER BY last_block_number DESC, live_cell_count DESC, type_hash
+             LIMIT $2 OFFSET $3",
+        );
+        Ok(sqlx::query_as::<Postgres, AssetRow>(&sql)
+            .bind(asset_kinds)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(self.pool())
+            .await?)
+    }
+
+    /// The same summaries for specific assets, in no particular order. Hashes the
+    /// index has never seen are simply absent.
+    pub async fn assets_by_type_hashes(&self, type_hashes: &[Vec<u8>]) -> Result<Vec<AssetRow>> {
+        let sql = asset_summary_sql("type_hash = ANY($1)", "");
+        Ok(sqlx::query_as::<Postgres, AssetRow>(&sql)
+            .bind(type_hashes)
+            .fetch_all(self.pool())
+            .await?)
     }
 
     /// How many distinct assets of these kinds exist, for paging.
@@ -119,11 +113,11 @@ impl Store {
         Ok(count)
     }
 
-    // TODO: holder aggregates for the explorer's coin/statistic views need an L1/L2
-    // split, where L2 means the same asset held under a plain CKB lock. Only RGB++ and
-    // BTC time locks are indexed here, so L2 is out of scope by construction -- widening
-    // it would make this a UDT indexer rather than an RGB++ one. Compose L2 in the
-    // gateway instead, and note the count will be approximate.
+    // TODO: the explorer's coin/statistic views split holders into L1 and L2, where L2
+    // means the same asset held under a plain CKB lock. Only RGB++ and BTC time locks
+    // are indexed here, so `holder_count` is L1 only and L2 is out of scope by
+    // construction -- widening it would make this a UDT indexer rather than an RGB++
+    // one. Compose L2 in the gateway instead, and note the count will be approximate.
 
     /// Balances across a set of Bitcoin outpoints, grouped by asset.
     ///
@@ -154,6 +148,58 @@ impl Store {
         .fetch_all(self.pool())
         .await?)
     }
+}
+
+/// Per-asset summary over `rgbpp_cells`, restricted by `filter` and finished by
+/// `tail` (ordering and paging).
+///
+/// Holders are counted in a second pass over only the assets the first pass kept, so
+/// a page of twenty assets joins twenty assets' cells against `btc_outpoints` rather
+/// than every cell in the index. A holder is a distinct owning address over the live
+/// RGB++-lock cells; BTC time lock cells are in transit to a CKB lock and have no
+/// Bitcoin owner. Bindings whose address the backfill has not resolved yet cannot be
+/// attributed to anyone, so they are counted separately instead of guessed at.
+fn asset_summary_sql(filter: &str, tail: &str) -> String {
+    format!(
+        "WITH assets AS (
+            SELECT type_hash,
+                   asset_kind,
+                   COUNT(*)                                                   AS cell_count,
+                   COUNT(*) FILTER (WHERE consumed_block_number IS NULL)      AS live_cell_count,
+                   COUNT(DISTINCT (btc_txid, btc_vout))
+                     FILTER (WHERE consumed_block_number IS NULL)             AS live_seal_count,
+                   SUM(COALESCE(udt_amount, 0))
+                     FILTER (WHERE consumed_block_number IS NULL)             AS total_amount,
+                   MIN(created_block_number)                                  AS first_block_number,
+                   (ARRAY_AGG(ckb_tx_hash ORDER BY created_block_number,
+                                                   created_tx_index,
+                                                   output_index))[1]          AS first_ckb_tx_hash,
+                   MAX(created_block_number)                                  AS last_block_number
+              FROM rgbpp_cells
+             WHERE type_hash IS NOT NULL
+               AND {filter}
+             GROUP BY type_hash, asset_kind
+             {tail}
+        ),
+        holders AS (
+            SELECT c.type_hash,
+                   COUNT(DISTINCT o.address)                                  AS holder_count,
+                   COUNT(DISTINCT (c.btc_txid, c.btc_vout))
+                     FILTER (WHERE o.address IS NULL)                         AS unlabelled_seal_count
+              FROM rgbpp_cells c
+              LEFT JOIN btc_outpoints o ON o.txid = c.btc_txid AND o.vout = c.btc_vout
+             WHERE c.type_hash IN (SELECT type_hash FROM assets)
+               AND c.consumed_block_number IS NULL
+               AND c.lock_kind = 'rgbpp'
+             GROUP BY c.type_hash
+        )
+        SELECT assets.*,
+               COALESCE(holders.holder_count, 0)          AS holder_count,
+               COALESCE(holders.unlabelled_seal_count, 0) AS unlabelled_seal_count
+          FROM assets
+          LEFT JOIN holders USING (type_hash)
+         ORDER BY assets.last_block_number DESC, assets.live_cell_count DESC, assets.type_hash"
+    )
 }
 
 impl Store {

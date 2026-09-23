@@ -10,6 +10,7 @@
 
 pub mod dto;
 pub mod error;
+pub mod extract;
 pub mod handlers;
 
 use std::net::SocketAddr;
@@ -80,6 +81,9 @@ fn documented_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::transaction_status))
         .routes(routes!(handlers::activity_by_btc_address))
         .routes(routes!(handlers::list_assets))
+        .routes(routes!(handlers::assets_batch))
+        .routes(routes!(handlers::cells_batch))
+        .routes(routes!(handlers::transitions_batch))
         .routes(routes!(handlers::recent_transitions))
         .routes(routes!(handlers::transition_by_ckb_tx))
         .routes(routes!(handlers::refresh_outpoints))
@@ -90,7 +94,12 @@ fn documented_routes() -> OpenApiRouter<AppState> {
 
 /// Schemas used only as request bodies. `tests::request_bodies_are_listed` fails if
 /// an operation takes a body that is missing here.
-const REQUEST_BODIES: &[&str] = &["RefreshRequest"];
+const REQUEST_BODIES: &[&str] = &[
+    "RefreshRequest",
+    "AssetsBatchRequest",
+    "CellsBatchRequest",
+    "TransitionsBatchRequest",
+];
 
 /// Mark every property of every response schema as required.
 ///
@@ -211,7 +220,7 @@ mod tests {
     fn every_operation_is_documented() {
         let spec = serde_json::to_value(openapi()).unwrap();
         let paths = spec["paths"].as_object().unwrap();
-        assert_eq!(paths.len(), 14);
+        assert_eq!(paths.len(), 17);
 
         for (path, item) in paths {
             for (method, op) in item.as_object().unwrap() {
@@ -228,6 +237,25 @@ mod tests {
                             "{at} {status} does not use the error schema"
                         );
                     }
+                }
+            }
+        }
+    }
+
+    /// Extractor rejections answer 400 with the error body (see `extract`), so any
+    /// operation that takes parameters or a body can return one.
+    #[test]
+    fn operations_with_input_document_400() {
+        let spec = serde_json::to_value(openapi()).unwrap();
+        for (path, item) in spec["paths"].as_object().unwrap() {
+            for (method, op) in item.as_object().unwrap() {
+                let has_input = op["parameters"].as_array().is_some_and(|p| !p.is_empty())
+                    || !op["requestBody"].is_null();
+                if has_input {
+                    assert!(
+                        !op["responses"]["400"].is_null(),
+                        "{method} {path} takes input but documents no 400"
+                    );
                 }
             }
         }
