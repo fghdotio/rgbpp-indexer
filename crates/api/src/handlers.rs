@@ -7,12 +7,11 @@
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
-use rgbpp_indexer::reconcile::{AddressReconcile, TransitionResolution};
 use rgbpp_store::state::CKB_STREAM;
 use rgbpp_types::bitcoin::{BtcOutPoint, BtcTxid};
 use rgbpp_types::ckb::H256;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::dto::*;
 use crate::error::{ApiError, ApiResult};
@@ -25,8 +24,10 @@ pub struct RefreshQuery {
     pub refresh: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct CellsQuery {
+    /// Re-observe the outpoint on Bitcoin before answering.
     #[serde(default)]
     pub refresh: bool,
     /// Include cells already consumed on CKB.
@@ -36,9 +37,12 @@ pub struct CellsQuery {
 
 /// Address endpoints reconcile by default — that is the whole point of them — so the
 /// flag is opt-*out*, unlike the outpoint endpoints where refreshing is opt-in.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct AddressQuery {
+    /// Diff against the Bitcoin data source before answering. Defaults to `true`.
     pub reconcile: Option<bool>,
+    /// Include cells already consumed on CKB.
     #[serde(default)]
     pub include_spent: bool,
 }
@@ -49,8 +53,10 @@ impl AddressQuery {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct BalanceQuery {
+    /// Diff against the Bitcoin data source before answering. Defaults to `true`.
     pub reconcile: Option<bool>,
     /// Count cells whose bound UTXO is already spent on Bitcoin but whose CKB
     /// transition is not indexed yet. Off by default: that is the conservative view.
@@ -58,23 +64,46 @@ pub struct BalanceQuery {
     pub include_pending: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct AnomalyQuery {
+    /// `btc_spent_without_ckb`, `no_commitment_in_spender`, `commitment_mismatch` or
+    /// `unknown_btc_tx`. Absent for all.
     pub kind: Option<String>,
     #[serde(default)]
     pub include_resolved: bool,
+    /// Page size, clamped to the configured maximum.
     pub limit: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct LimitQuery {
+    /// Page size, clamped to the configured maximum.
     pub limit: Option<i64>,
 }
 
-pub async fn health() -> Json<serde_json::Value> {
-    Json(json!({ "status": "ok" }))
+#[derive(Debug, Serialize, ToSchema)]
+pub struct HealthDto {
+    #[schema(example = "ok")]
+    pub status: String,
 }
 
+/// Liveness. Answers as long as the process is serving.
+#[utoipa::path(get, path = "/health", tag = "ops",
+    responses((status = 200, body = HealthDto)))]
+pub async fn health() -> Json<HealthDto> {
+    Json(HealthDto {
+        status: "ok".to_string(),
+    })
+}
+
+/// Index progress, lag, and derived counts.
+///
+/// `ckb.blocks_behind` is the window between the chain tip and what is queryable.
+/// Only the endpoints that reconcile against Bitcoin can see into it.
+#[utoipa::path(get, path = "/status", tag = "ops",
+    responses((status = 200, body = StatusDto), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn status(State(state): State<AppState>) -> ApiResult<Json<StatusDto>> {
     let engine = &state.engine;
     let stream = engine.store.get_stream_state(CKB_STREAM).await?;
@@ -106,7 +135,7 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Json<StatusDto>>
         network: engine.config.general.network.clone(),
         btc_source: engine.btc.name().to_string(),
         ckb,
-        counts,
+        counts: counts.into(),
         last_sweep: sweep.map(
             |(id, started_at, finished_at, checked, anomalies, status)| SweepStatusDto {
                 id,
@@ -121,6 +150,9 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Json<StatusDto>>
 }
 
 /// Cells bound to one Bitcoin UTXO.
+#[utoipa::path(get, path = "/v1/rgbpp/cells/by-btc-utxo/{txid}/{vout}", tag = "cells",
+    params(("txid" = String, Path, description = "Bitcoin txid, hex, display order"), ("vout" = u32, Path, description = "Output index"), CellsQuery),
+    responses((status = 200, body = Vec<CellDto>), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn cells_by_btc_utxo(
     State(state): State<AppState>,
     Path((txid, vout)): Path<(String, u32)>,
@@ -150,6 +182,9 @@ pub async fn cells_by_btc_utxo(
 }
 
 /// Every cell bound to any output of one Bitcoin transaction.
+#[utoipa::path(get, path = "/v1/rgbpp/cells/by-btc-txid/{txid}", tag = "cells",
+    params(("txid" = String, Path, description = "Bitcoin txid, hex, display order")),
+    responses((status = 200, body = Vec<CellDto>), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn cells_by_btc_txid(
     State(state): State<AppState>,
     Path(txid): Path<String>,
@@ -163,6 +198,11 @@ pub async fn cells_by_btc_txid(
     Ok(Json(rows.into_iter().map(CellDto::from).collect()))
 }
 
+/// One RGB++ cell by its CKB out point.
+#[utoipa::path(get, path = "/v1/rgbpp/cells/by-ckb-out-point/{tx_hash}/{index}", tag = "cells",
+    params(("tx_hash" = String, Path, description = "CKB transaction hash, `0x`-prefixed"),
+           ("index" = u32, Path, description = "Output index")),
+    responses((status = 200, body = CellDto), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 404, description = "Not in the index", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn cell_by_ckb_out_point(
     State(state): State<AppState>,
     Path((tx_hash, index)): Path<(String, u32)>,
@@ -177,26 +217,32 @@ pub async fn cell_by_ckb_out_point(
     Ok(Json(CellDto::from(row)))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AddressAssetsResponse {
     pub address: String,
     /// What the diff against the Bitcoin data source turned up. Present unless
     /// reconciliation was skipped.
-    pub reconciliation: Option<AddressReconcile>,
+    pub reconciliation: Option<AddressReconcileDto>,
     pub cells: Vec<CellDto>,
 }
 
-/// RGB++ assets held by a Bitcoin address.
+/// RGB++ cells held by a Bitcoin address.
 ///
-/// This is the endpoint requirement 3 is about. Before answering, the address's live
-/// UTXO set is fetched from the Bitcoin data source and diffed against the outpoints
-/// the indexer still believes are live; anything that has moved gets re-observed, so
-/// the answer reflects Bitcoin's view even when the CKB side has not caught up.
+/// Reconciles by default: the address's live UTXO set is fetched from the Bitcoin data
+/// source and diffed against the index, and anything that has moved is re-observed,
+/// so the answer reflects Bitcoin even when the CKB side lags. Pass `reconcile=false`
+/// to answer from the index alone.
+///
+/// An empty `cells` list does not distinguish "holds nothing" from "not indexed yet";
+/// check `/status` while the index is catching up.
 // TODO: an empty result cannot be told apart from "not indexed yet". Answer 503 with
 // an explicit syncing state (plus progress) while blocks_behind is large or the stream
 // holds an error, and carry indexed_to/chain_tip on normal responses. Must land before
 // the first external consumer -- adding a 503 to an endpoint that has always returned
 // 200 is a breaking change afterwards. See README "Known limitations".
+#[utoipa::path(get, path = "/v1/rgbpp/assets/by-btc-address/{address}", tag = "addresses",
+    params(("address" = String, Path, description = "Bitcoin address"), AddressQuery),
+    responses((status = 200, body = AddressAssetsResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn assets_by_btc_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
@@ -205,7 +251,7 @@ pub async fn assets_by_btc_address(
     let engine = &state.engine;
 
     let reconciliation = if query.reconcile(engine.config.reconcile.enabled) {
-        Some(engine.reconciler.reconcile_address(&address).await?)
+        Some(engine.reconciler.reconcile_address(&address).await?.into())
     } else {
         None
     };
@@ -230,7 +276,7 @@ pub async fn assets_by_btc_address(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct BalanceResponse {
     pub address: String,
     pub include_pending: bool,
@@ -238,6 +284,9 @@ pub struct BalanceResponse {
 }
 
 /// Balances for an address, computed from the cell table on every request.
+#[utoipa::path(get, path = "/v1/rgbpp/balance/by-btc-address/{address}", tag = "addresses",
+    params(("address" = String, Path, description = "Bitcoin address"), BalanceQuery),
+    responses((status = 200, body = BalanceResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn balance_by_btc_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
@@ -267,19 +316,23 @@ pub async fn balance_by_btc_address(
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct TransactionStatusResponse {
     pub btc_txid: String,
-    pub resolution: TransitionResolution,
+    pub resolution: TransitionResolutionDto,
     pub transitions: Vec<TransitionDto>,
     pub cells: Vec<CellDto>,
 }
 
 /// Status of one RGB++ transaction, resolved across both chains.
 ///
-/// Polling this is the second half of requirement 3: it re-observes exactly the
-/// outpoints the transaction touches, and looks past the indexed range by asking the
-/// rich indexer directly for cells bound to the transaction's outputs.
+/// Re-observes the outpoints the Bitcoin transaction spends, and looks past the
+/// indexed range by asking the rich indexer directly for cells bound to its outputs,
+/// so `resolution` can report a transition the index has not reached yet. Suitable
+/// for polling.
+#[utoipa::path(get, path = "/v1/rgbpp/transactions/{txid}", tag = "transactions",
+    params(("txid" = String, Path, description = "Bitcoin txid, hex, display order")),
+    responses((status = 200, body = TransactionStatusResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn transaction_status(
     State(state): State<AppState>,
     Path(txid): Path<String>,
@@ -299,18 +352,20 @@ pub async fn transaction_status(
 
     Ok(Json(TransactionStatusResponse {
         btc_txid: txid.to_hex(),
-        resolution,
+        resolution: resolution.into(),
         transitions: transitions.into_iter().map(TransitionDto::from).collect(),
         cells: cells.into_iter().map(CellDto::from).collect(),
     }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct RefreshRequest {
     /// Outpoints as `txid:vout`.
+    #[schema(example = json!(["4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:0"]))]
     pub outpoints: Vec<String>,
     /// Wait for the refresh instead of queueing it.
     #[serde(default = "default_true")]
+    #[schema(default = true)]
     pub synchronous: bool,
 }
 
@@ -318,14 +373,19 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RefreshResponse {
     pub requested: usize,
-    pub refreshed: Vec<rgbpp_indexer::OutpointRefresh>,
+    /// Present when `synchronous` was set.
+    pub refreshed: Vec<OutpointRefreshDto>,
+    /// Present when `synchronous` was not set.
     pub queued: usize,
 }
 
 /// Force a re-observation of specific outpoints.
+#[utoipa::path(post, path = "/v1/rgbpp/refresh", tag = "ops",
+    request_body = RefreshRequest,
+    responses((status = 200, body = RefreshResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 502, description = "Bitcoin data source or CKB node unavailable; safe to retry", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn refresh_outpoints(
     State(state): State<AppState>,
     Json(request): Json<RefreshRequest>,
@@ -344,7 +404,7 @@ pub async fn refresh_outpoints(
             .await?;
         Ok(Json(RefreshResponse {
             requested: outpoints.len(),
-            refreshed,
+            refreshed: refreshed.into_iter().map(Into::into).collect(),
             queued: 0,
         }))
     } else {
@@ -369,16 +429,19 @@ pub async fn refresh_outpoints(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct AssetsQuery {
-    /// `udt` (xUDT + sUDT), `dob` (Spore), or absent for both.
+    /// `udt` (xUDT + sUDT), `dob` (Spore and Spore Cluster), `unknown`, or `all`.
+    /// Absent means `all`.
     pub kind: Option<String>,
+    /// Page size, clamped to the configured maximum.
     pub limit: Option<i64>,
     #[serde(default)]
     pub offset: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AssetsResponse {
     pub assets: Vec<AssetDto>,
     /// Distinct assets of this kind in the whole index, for paging.
@@ -391,6 +454,9 @@ pub struct AssetsResponse {
 /// this cannot answer: an asset has no name, and no holder count — the indexer learns
 /// Bitcoin addresses opportunistically, so `live_seal_count` (distinct outpoints
 /// currently holding it) is the honest stand-in.
+#[utoipa::path(get, path = "/v1/rgbpp/assets", tag = "assets",
+    params(AssetsQuery),
+    responses((status = 200, body = AssetsResponse), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn list_assets(
     State(state): State<AppState>,
     Query(query): Query<AssetsQuery>,
@@ -435,6 +501,10 @@ pub async fn list_assets(
     }))
 }
 
+/// Most recent RGB++ state transitions, newest first.
+#[utoipa::path(get, path = "/v1/rgbpp/transitions", tag = "transactions",
+    params(LimitQuery),
+    responses((status = 200, body = Vec<TransitionDto>), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn recent_transitions(
     State(state): State<AppState>,
     Query(query): Query<LimitQuery>,
@@ -444,6 +514,10 @@ pub async fn recent_transitions(
     Ok(Json(rows.into_iter().map(TransitionDto::from).collect()))
 }
 
+/// One RGB++ state transition by CKB transaction hash.
+#[utoipa::path(get, path = "/v1/rgbpp/transitions/{tx_hash}", tag = "transactions",
+    params(("tx_hash" = String, Path, description = "CKB transaction hash, `0x`-prefixed")),
+    responses((status = 200, body = TransitionDto), (status = 400, description = "Malformed parameter", body = ErrorResponse), (status = 404, description = "Not in the index", body = ErrorResponse), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn transition_by_ckb_tx(
     State(state): State<AppState>,
     Path(tx_hash): Path<String>,
@@ -458,9 +532,12 @@ pub async fn transition_by_ckb_tx(
     Ok(Json(TransitionDto::from(row)))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ActivityQuery {
+    /// `next_cursor` from the previous page.
     pub cursor: Option<String>,
+    /// Page size, clamped to the configured maximum.
     pub limit: Option<i64>,
 }
 
@@ -470,6 +547,9 @@ pub struct ActivityQuery {
 /// settled, and the indexed range already lags the tip by `REORG_LAG` by design.
 /// A very recent transition appears here a few minutes after it confirms; use
 /// `/v1/rgbpp/transactions/{btc_txid}` to watch one in flight.
+#[utoipa::path(get, path = "/v1/rgbpp/activity/by-btc-address/{address}", tag = "addresses",
+    params(("address" = String, Path, description = "Bitcoin address"), ActivityQuery),
+    responses((status = 200, body = AddressActivityDto), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn activity_by_btc_address(
     State(state): State<AppState>,
     Path(address): Path<String>,
@@ -490,6 +570,11 @@ pub async fn activity_by_btc_address(
     )))
 }
 
+/// Findings that need a human: Bitcoin spends with no CKB transition, and
+/// commitments that do not match.
+#[utoipa::path(get, path = "/v1/anomalies", tag = "ops",
+    params(AnomalyQuery),
+    responses((status = 200, body = Vec<AnomalyDto>), (status = 500, description = "Internal error", body = ErrorResponse)))]
 pub async fn anomalies(
     State(state): State<AppState>,
     Query(query): Query<AnomalyQuery>,

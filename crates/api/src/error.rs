@@ -1,9 +1,10 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
 use thiserror::Error;
 use tracing::error;
+
+use crate::dto::{ErrorBody, ErrorKind, ErrorResponse};
 
 #[derive(Debug, Error)]
 pub enum ApiError {
@@ -53,21 +54,21 @@ impl IntoResponse for ApiError {
         if status.is_server_error() {
             error!(error = %self, "request failed");
         }
-        (
-            status,
-            Json(json!({
-                "error": {
-                    "kind": match status {
-                        StatusCode::BAD_REQUEST => "bad_request",
-                        StatusCode::NOT_FOUND => "not_found",
-                        StatusCode::BAD_GATEWAY => "upstream_unavailable",
-                        _ => "internal",
-                    },
-                    "message": self.to_string(),
-                }
-            })),
-        )
-            .into_response()
+        // Built from the documented type rather than ad-hoc JSON, so the error schema
+        // in the OpenAPI spec is the serialization, not a description of it.
+        let kind = match status {
+            StatusCode::BAD_REQUEST => ErrorKind::BadRequest,
+            StatusCode::NOT_FOUND => ErrorKind::NotFound,
+            StatusCode::BAD_GATEWAY => ErrorKind::UpstreamUnavailable,
+            _ => ErrorKind::Internal,
+        };
+        let body = ErrorResponse {
+            error: ErrorBody {
+                kind,
+                message: self.to_string(),
+            },
+        };
+        (status, Json(body)).into_response()
     }
 }
 

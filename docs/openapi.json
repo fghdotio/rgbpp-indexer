@@ -1,0 +1,2234 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RGB++ Indexer API",
+    "description": "RGB++ state indexed from CKB, reconciled against Bitcoin.\n\nAmounts and capacities are decimal strings, since a u128 UDT amount does not survive a JSON number. CKB hashes are `0x`-prefixed; Bitcoin txids are bare hex in display order.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Liveness. Answers as long as the process is serving.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Index progress, lag, and derived counts.",
+        "description": "`ckb.blocks_behind` is the window between the chain tip and what is queryable.\nOnly the endpoints that reconcile against Bitcoin can see into it.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/anomalies": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Findings that need a human: Bitcoin spends with no CKB transition, and\ncommitments that do not match.",
+        "operationId": "anomalies",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "`btc_spent_without_ckb`, `no_commitment_in_spender`, `commitment_mismatch` or\n`unknown_btc_tx`. Absent for all.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_resolved",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, clamped to the configured maximum.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AnomalyDto"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/activity/by-btc-address/{address}": {
+      "get": {
+        "tags": [
+          "addresses"
+        ],
+        "summary": "RGB++ history for a Bitcoin address, newest first.",
+        "description": "Deliberately does not reconcile against the Bitcoin data source: history is\nsettled, and the indexed range already lags the tip by `REORG_LAG` by design.\nA very recent transition appears here a few minutes after it confirms; use\n`/v1/rgbpp/transactions/{btc_txid}` to watch one in flight.",
+        "operationId": "activity_by_btc_address",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "description": "Bitcoin address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "`next_cursor` from the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, clamped to the configured maximum.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressActivityDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/assets": {
+      "get": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "Every distinct asset the index has seen, by type script hash.",
+        "description": "Grouped over the cell table on read, like every other aggregate here. Note what\nthis cannot answer: an asset has no name, and no holder count — the indexer learns\nBitcoin addresses opportunistically, so `live_seal_count` (distinct outpoints\ncurrently holding it) is the honest stand-in.",
+        "operationId": "list_assets",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "`udt` (xUDT + sUDT), `dob` (Spore and Spore Cluster), `unknown`, or `all`.\nAbsent means `all`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, clamped to the configured maximum.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/assets/by-btc-address/{address}": {
+      "get": {
+        "tags": [
+          "addresses"
+        ],
+        "summary": "RGB++ cells held by a Bitcoin address.",
+        "description": "Reconciles by default: the address's live UTXO set is fetched from the Bitcoin data\nsource and diffed against the index, and anything that has moved is re-observed,\nso the answer reflects Bitcoin even when the CKB side lags. Pass `reconcile=false`\nto answer from the index alone.\n\nAn empty `cells` list does not distinguish \"holds nothing\" from \"not indexed yet\";\ncheck `/status` while the index is catching up.",
+        "operationId": "assets_by_btc_address",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "description": "Bitcoin address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reconcile",
+            "in": "query",
+            "description": "Diff against the Bitcoin data source before answering. Defaults to `true`.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_spent",
+            "in": "query",
+            "description": "Include cells already consumed on CKB.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressAssetsResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bitcoin data source or CKB node unavailable; safe to retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/balance/by-btc-address/{address}": {
+      "get": {
+        "tags": [
+          "addresses"
+        ],
+        "summary": "Balances for an address, computed from the cell table on every request.",
+        "operationId": "balance_by_btc_address",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "description": "Bitcoin address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reconcile",
+            "in": "query",
+            "description": "Diff against the Bitcoin data source before answering. Defaults to `true`.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_pending",
+            "in": "query",
+            "description": "Count cells whose bound UTXO is already spent on Bitcoin but whose CKB\ntransition is not indexed yet. Off by default: that is the conservative view.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalanceResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bitcoin data source or CKB node unavailable; safe to retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/cells/by-btc-txid/{txid}": {
+      "get": {
+        "tags": [
+          "cells"
+        ],
+        "summary": "Every cell bound to any output of one Bitcoin transaction.",
+        "operationId": "cells_by_btc_txid",
+        "parameters": [
+          {
+            "name": "txid",
+            "in": "path",
+            "description": "Bitcoin txid, hex, display order",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CellDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/cells/by-btc-utxo/{txid}/{vout}": {
+      "get": {
+        "tags": [
+          "cells"
+        ],
+        "summary": "Cells bound to one Bitcoin UTXO.",
+        "operationId": "cells_by_btc_utxo",
+        "parameters": [
+          {
+            "name": "txid",
+            "in": "path",
+            "description": "Bitcoin txid, hex, display order",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vout",
+            "in": "path",
+            "description": "Output index",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "Re-observe the outpoint on Bitcoin before answering.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_spent",
+            "in": "query",
+            "description": "Include cells already consumed on CKB.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CellDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bitcoin data source or CKB node unavailable; safe to retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/cells/by-ckb-out-point/{tx_hash}/{index}": {
+      "get": {
+        "tags": [
+          "cells"
+        ],
+        "summary": "One RGB++ cell by its CKB out point.",
+        "operationId": "cell_by_ckb_out_point",
+        "parameters": [
+          {
+            "name": "tx_hash",
+            "in": "path",
+            "description": "CKB transaction hash, `0x`-prefixed",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "description": "Output index",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not in the index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/refresh": {
+      "post": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Force a re-observation of specific outpoints.",
+        "operationId": "refresh_outpoints",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bitcoin data source or CKB node unavailable; safe to retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/transactions/{txid}": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Status of one RGB++ transaction, resolved across both chains.",
+        "description": "Re-observes the outpoints the Bitcoin transaction spends, and looks past the\nindexed range by asking the rich indexer directly for cells bound to its outputs,\nso `resolution` can report a transition the index has not reached yet. Suitable\nfor polling.",
+        "operationId": "transaction_status",
+        "parameters": [
+          {
+            "name": "txid",
+            "in": "path",
+            "description": "Bitcoin txid, hex, display order",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bitcoin data source or CKB node unavailable; safe to retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/transitions": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Most recent RGB++ state transitions, newest first.",
+        "operationId": "recent_transitions",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, clamped to the configured maximum.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransitionDto"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/rgbpp/transitions/{tx_hash}": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "One RGB++ state transition by CKB transaction hash.",
+        "operationId": "transition_by_ckb_tx",
+        "parameters": [
+          {
+            "name": "tx_hash",
+            "in": "path",
+            "description": "CKB transaction hash, `0x`-prefixed",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransitionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not in the index",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActivityBtcDto": {
+        "type": "object",
+        "required": [
+          "block_hash",
+          "block_height",
+          "block_time",
+          "confirmed",
+          "fee",
+          "txid"
+        ],
+        "properties": {
+          "block_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "block_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "block_time": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "confirmed": {
+            "type": "boolean"
+          },
+          "fee": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Satoshis. Null when the transaction has not been observed yet, or when the\ndata source does not report a fee."
+          },
+          "txid": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivityCellDto": {
+        "type": "object",
+        "description": "A cell an address gained or lost.",
+        "required": [
+          "amount",
+          "asset_kind",
+          "btc_out_point",
+          "capacity",
+          "ckb_out_point",
+          "type_hash"
+        ],
+        "properties": {
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "asset_kind": {
+            "type": "string"
+          },
+          "btc_out_point": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BtcOutPointDto"
+              }
+            ]
+          },
+          "capacity": {
+            "type": "string"
+          },
+          "ckb_out_point": {
+            "$ref": "#/components/schemas/CkbOutPointDto"
+          },
+          "type_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ActivityDirection": {
+        "type": "string",
+        "enum": [
+          "in",
+          "out",
+          "self_"
+        ]
+      },
+      "ActivityEntryDto": {
+        "type": "object",
+        "required": [
+          "block_number",
+          "block_timestamp",
+          "btc",
+          "ckb_tx_hash",
+          "cursor",
+          "deltas",
+          "direction",
+          "kind",
+          "received",
+          "sent",
+          "tx_index"
+        ],
+        "properties": {
+          "block_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "block_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "btc": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ActivityBtcDto",
+                "description": "`None` when the transition has no resolved Bitcoin side — issuance, or a\ntransaction whose txid could not be derived from its outputs."
+              }
+            ]
+          },
+          "ckb_tx_hash": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pass as `cursor` to continue after this entry."
+          },
+          "deltas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetDeltaDto"
+            }
+          },
+          "direction": {
+            "$ref": "#/components/schemas/ActivityDirection"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "received": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityCellDto"
+            }
+          },
+          "sent": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityCellDto"
+            }
+          },
+          "tx_index": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AddressActivityDto": {
+        "type": "object",
+        "required": [
+          "address",
+          "entries",
+          "next_cursor",
+          "unresolved_bindings_total"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityEntryDto"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null when the page reached the end of the history."
+          },
+          "unresolved_bindings_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bindings anywhere in the index whose owning address is still unresolved.\n\nDeliberately global, not per-address: a binding with no known owner cannot be\nattributed to *this* address either, so a per-address count would always be\nzero and would say nothing. Non-zero means the backfill is still running and\nany history may be incomplete — better than presenting a partial list as the\nwhole story."
+          }
+        }
+      },
+      "AddressAssetsResponse": {
+        "type": "object",
+        "required": [
+          "address",
+          "cells",
+          "reconciliation"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CellDto"
+            }
+          },
+          "reconciliation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AddressReconcileDto",
+                "description": "What the diff against the Bitcoin data source turned up. Present unless\nreconciliation was skipped."
+              }
+            ]
+          }
+        }
+      },
+      "AddressReconcileDto": {
+        "type": "object",
+        "description": "Outcome of diffing an address's live UTXO set against the index.",
+        "required": [
+          "address",
+          "contradicted",
+          "disappeared",
+          "refreshed",
+          "source_utxo_count"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "contradicted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BtcOutPointDto"
+            },
+            "description": "Recorded as spent by the index, still listed as unspent by the data source —\na replaced transaction or a Bitcoin reorg."
+          },
+          "disappeared": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BtcOutPointDto"
+            },
+            "description": "Believed live by the index, no longer listed by the data source."
+          },
+          "refreshed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutpointRefreshDto"
+            }
+          },
+          "source_utxo_count": {
+            "type": "integer",
+            "description": "Outpoints currently unspent according to the Bitcoin data source.",
+            "minimum": 0
+          }
+        }
+      },
+      "AnomalyDto": {
+        "type": "object",
+        "required": [
+          "btc_out_point",
+          "ckb_out_point",
+          "detail",
+          "detected_at",
+          "id",
+          "kind",
+          "last_seen_at",
+          "resolved_at"
+        ],
+        "properties": {
+          "btc_out_point": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BtcOutPointDto"
+              }
+            ]
+          },
+          "ckb_out_point": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CkbOutPointDto"
+              }
+            ]
+          },
+          "detail": {
+            "type": "object"
+          },
+          "detected_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AssetBalanceDto": {
+        "type": "object",
+        "required": [
+          "asset_kind",
+          "cell_count",
+          "total_amount",
+          "total_capacity",
+          "type_hash"
+        ],
+        "properties": {
+          "asset_kind": {
+            "type": "string"
+          },
+          "cell_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null for non-fungible assets."
+          },
+          "total_capacity": {
+            "type": "string"
+          },
+          "type_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AssetDeltaDto": {
+        "type": "object",
+        "description": "Net change in one asset, from this address's point of view.\n\nComputed here rather than left to the caller: every client would otherwise\nreimplement the same signed sum over received minus sent, and a history row that\nsays \"−100 TOKEN\" is the whole point of the endpoint.",
+        "required": [
+          "amount",
+          "asset_kind",
+          "capacity",
+          "cell_delta",
+          "type_hash"
+        ],
+        "properties": {
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Signed decimal string. Null for non-fungible assets."
+          },
+          "asset_kind": {
+            "type": "string"
+          },
+          "capacity": {
+            "type": "string"
+          },
+          "cell_delta": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AssetDto": {
+        "type": "object",
+        "description": "One distinct asset in the index.\n\nThere is no `symbol` and no `decimals` field, and there will not be one until\nsomething indexes the cells that publish them: the type script hash is the whole\nidentity of an asset here. A client that needs a name has to resolve it itself.",
+        "required": [
+          "asset_kind",
+          "cell_count",
+          "first_block_number",
+          "first_ckb_tx_hash",
+          "last_block_number",
+          "live_cell_count",
+          "live_seal_count",
+          "total_amount",
+          "type_hash"
+        ],
+        "properties": {
+          "asset_kind": {
+            "type": "string"
+          },
+          "cell_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "first_block_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "first_ckb_tx_hash": {
+            "type": "string"
+          },
+          "last_block_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "live_cell_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "live_seal_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Distinct Bitcoin outpoints currently holding it."
+          },
+          "total_amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Null for non-fungible assets."
+          },
+          "type_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "AssetsResponse": {
+        "type": "object",
+        "required": [
+          "assets",
+          "total"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetDto"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Distinct assets of this kind in the whole index, for paging."
+          }
+        }
+      },
+      "BalanceResponse": {
+        "type": "object",
+        "required": [
+          "address",
+          "assets",
+          "include_pending"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetBalanceDto"
+            }
+          },
+          "include_pending": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BtcObservationDto": {
+        "type": "object",
+        "required": [
+          "address",
+          "height",
+          "observed_at",
+          "spender",
+          "status"
+        ],
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "spender": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "BtcOutPointDto": {
+        "type": "object",
+        "required": [
+          "txid",
+          "vout"
+        ],
+        "properties": {
+          "txid": {
+            "type": "string"
+          },
+          "vout": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "BtcTimeDto": {
+        "type": "object",
+        "required": [
+          "after",
+          "btc_txid",
+          "target_lock"
+        ],
+        "properties": {
+          "after": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Bitcoin confirmations `btc_txid` needs before the cell unlocks.",
+            "minimum": 0
+          },
+          "btc_txid": {
+            "type": "string"
+          },
+          "target_lock": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptDto",
+                "description": "Lock the cell falls back to once `after` is met."
+              }
+            ]
+          }
+        }
+      },
+      "CellDto": {
+        "type": "object",
+        "required": [
+          "amount",
+          "asset_kind",
+          "btc_observation",
+          "btc_out_point",
+          "btc_time",
+          "capacity",
+          "ckb_out_point",
+          "consumed",
+          "created",
+          "data",
+          "lock_kind",
+          "status",
+          "type_hash",
+          "type_script"
+        ],
+        "properties": {
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "UDT amount as a decimal string. Null for non-fungible assets."
+          },
+          "asset_kind": {
+            "type": "string",
+            "description": "`xudt`, `sudt`, `spore`, `spore_cluster`, `unknown` (a type script matching\nno configured code hash) or `none` (no type script)."
+          },
+          "btc_observation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BtcObservationDto"
+              }
+            ]
+          },
+          "btc_out_point": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BtcOutPointDto",
+                "description": "Present for RGB++ locks. BTC time locks reference a transaction, not a UTXO."
+              }
+            ]
+          },
+          "btc_time": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BtcTimeDto"
+              }
+            ]
+          },
+          "capacity": {
+            "type": "string",
+            "description": "Shannons, as a decimal string."
+          },
+          "ckb_out_point": {
+            "$ref": "#/components/schemas/CkbOutPointDto"
+          },
+          "consumed": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConsumedDto"
+              }
+            ]
+          },
+          "created": {
+            "$ref": "#/components/schemas/CreatedDto"
+          },
+          "data": {
+            "type": "string",
+            "description": "Cell data, `0x`-prefixed hex."
+          },
+          "lock_kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "`live`, `pending_ckb` (bound UTXO spent on Bitcoin, CKB transition not\nindexed yet) or `spent`. Derived from the CKB fact and the Bitcoin\nobservation together."
+          },
+          "type_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type_script": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptDto"
+              }
+            ]
+          }
+        }
+      },
+      "CkbOutPointDto": {
+        "type": "object",
+        "required": [
+          "index",
+          "tx_hash"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tx_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "CkbStatusDto": {
+        "type": "object",
+        "required": [
+          "blocks_behind",
+          "chain_tip",
+          "indexed_to",
+          "last_error",
+          "reorg_lag",
+          "target",
+          "updated_at"
+        ],
+        "properties": {
+          "blocks_behind": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Blocks between the chain tip and what is queryable — the size of the window\nthat only the on-demand path can see into."
+          },
+          "chain_tip": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "indexed_to": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reorg_lag": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "target": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ConsumedDto": {
+        "type": "object",
+        "required": [
+          "block_number",
+          "tx_hash"
+        ],
+        "properties": {
+          "block_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tx_hash": {
+            "type": "string"
+          }
+        }
+      },
+      "CountsDto": {
+        "type": "object",
+        "description": "Derived counts, computed on every request.",
+        "required": [
+          "dobs",
+          "live_cells",
+          "observed_outpoints",
+          "open_anomalies",
+          "pending_ckb_cells",
+          "refresh_queue_depth",
+          "total_cells",
+          "transitions",
+          "udts"
+        ],
+        "properties": {
+          "dobs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Distinct Spore type script hashes."
+          },
+          "live_cells": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "observed_outpoints": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "open_anomalies": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pending_ckb_cells": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "refresh_queue_depth": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total_cells": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "transitions": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "udts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Distinct UDT type script hashes seen under an RGB++ lock."
+          }
+        }
+      },
+      "CreatedDto": {
+        "type": "object",
+        "required": [
+          "block_number",
+          "tx_index"
+        ],
+        "properties": {
+          "block_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tx_index": {
+            "type": "integer",
+            "format": "int32",
+            "description": "`-1` means the cell was backfilled from the node, where the position inside\nthe block is not reported."
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "required": [
+          "kind",
+          "message"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ErrorKind"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorKind": {
+        "type": "string",
+        "enum": [
+          "bad_request",
+          "not_found",
+          "upstream_unavailable",
+          "internal"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Every error response has this shape.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        }
+      },
+      "HealthDto": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ok"
+          }
+        }
+      },
+      "OutpointRefreshDto": {
+        "type": "object",
+        "required": [
+          "changed",
+          "outpoint",
+          "status"
+        ],
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "description": "Whether this observation differs from what the indexer previously held."
+          },
+          "outpoint": {
+            "$ref": "#/components/schemas/BtcOutPointDto"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SpendStatusDto"
+          }
+        }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": [
+          "outpoints"
+        ],
+        "properties": {
+          "outpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Outpoints as `txid:vout`.",
+            "example": [
+              "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b:0"
+            ]
+          },
+          "synchronous": {
+            "type": "boolean",
+            "description": "Wait for the refresh instead of queueing it.",
+            "default": true
+          }
+        }
+      },
+      "RefreshResponse": {
+        "type": "object",
+        "required": [
+          "queued",
+          "refreshed",
+          "requested"
+        ],
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "description": "Present when `synchronous` was not set.",
+            "minimum": 0
+          },
+          "refreshed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutpointRefreshDto"
+            },
+            "description": "Present when `synchronous` was set."
+          },
+          "requested": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ScriptDto": {
+        "type": "object",
+        "description": "A CKB script as stored with the cell.\n\nDocumentation only: the field it describes is passed through as stored JSON, but\nalways has exactly this shape.",
+        "required": [
+          "args",
+          "code_hash",
+          "hash_type"
+        ],
+        "properties": {
+          "args": {
+            "type": "string",
+            "description": "`0x`-prefixed hex."
+          },
+          "code_hash": {
+            "type": "string",
+            "description": "`0x`-prefixed hex."
+          },
+          "hash_type": {
+            "type": "string",
+            "description": "`data`, `type`, `data1` or `data2`."
+          }
+        }
+      },
+      "SpendStatusDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Never observed, or the observation has been invalidated.",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "unknown"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "unspent"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Spent by a transaction still in the mempool.",
+            "required": [
+              "spender",
+              "status"
+            ],
+            "properties": {
+              "spender": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "spent_unconfirmed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "height",
+              "spender",
+              "status"
+            ],
+            "properties": {
+              "height": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "spender": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "spent_confirmed"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "What the Bitcoin data source last said about one outpoint."
+      },
+      "StatusDto": {
+        "type": "object",
+        "description": "What `/status` reports. Deliberately explicit about the lag: an application that\ndoes not know how far behind the indexed range is cannot tell \"not there\" from\n\"not there yet\".",
+        "required": [
+          "btc_source",
+          "ckb",
+          "counts",
+          "last_sweep",
+          "network"
+        ],
+        "properties": {
+          "btc_source": {
+            "type": "string"
+          },
+          "ckb": {
+            "$ref": "#/components/schemas/CkbStatusDto"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/CountsDto"
+          },
+          "last_sweep": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SweepStatusDto"
+              }
+            ]
+          },
+          "network": {
+            "type": "string"
+          }
+        }
+      },
+      "SweepStatusDto": {
+        "type": "object",
+        "required": [
+          "anomalies_found",
+          "finished_at",
+          "id",
+          "outpoints_checked",
+          "started_at",
+          "status"
+        ],
+        "properties": {
+          "anomalies_found": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "outpoints_checked": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "TransactionStatusResponse": {
+        "type": "object",
+        "required": [
+          "btc_txid",
+          "cells",
+          "resolution",
+          "transitions"
+        ],
+        "properties": {
+          "btc_txid": {
+            "type": "string"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CellDto"
+            }
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/TransitionResolutionDto"
+          },
+          "transitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransitionDto"
+            }
+          }
+        }
+      },
+      "TransitionDto": {
+        "type": "object",
+        "required": [
+          "block_number",
+          "block_timestamp",
+          "btc_txid",
+          "ckb_tx_hash",
+          "commitment_status",
+          "expected_commitment",
+          "input_cell_count",
+          "kind",
+          "observed_commitment",
+          "output_cell_count",
+          "tx_index"
+        ],
+        "properties": {
+          "block_number": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "block_timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "btc_txid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ckb_tx_hash": {
+            "type": "string"
+          },
+          "commitment_status": {
+            "type": "string"
+          },
+          "expected_commitment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "input_cell_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "observed_commitment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_cell_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tx_index": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "TransitionResolutionDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The Bitcoin data source has never heard of this transaction.",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "unknown_btc_tx"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Seen on Bitcoin; no CKB transaction found yet.",
+            "required": [
+              "btc_confirmed",
+              "btc_height",
+              "state"
+            ],
+            "properties": {
+              "btc_confirmed": {
+                "type": "boolean"
+              },
+              "btc_height": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "awaiting_ckb"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Cells for this transaction exist on CKB above the indexed range: the\ntransition is real, the index has not reached it yet.",
+            "required": [
+              "cells",
+              "indexed_to",
+              "state"
+            ],
+            "properties": {
+              "cells": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CkbOutPointDto"
+                }
+              },
+              "indexed_to": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ckb_seen_above_lag"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A CKB transition is indexed for this Bitcoin transaction.",
+            "required": [
+              "block_number",
+              "ckb_tx_hash",
+              "state"
+            ],
+            "properties": {
+              "block_number": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "ckb_tx_hash": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "indexed"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Where an RGB++ transaction has got to, across both chains."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "addresses",
+      "description": "RGB++ holdings and history of a Bitcoin address"
+    },
+    {
+      "name": "cells",
+      "description": "RGB++ cells by their Bitcoin or CKB location"
+    },
+    {
+      "name": "transactions",
+      "description": "RGB++ state transitions and cross-chain status"
+    },
+    {
+      "name": "assets",
+      "description": "Distinct assets in the index"
+    },
+    {
+      "name": "ops",
+      "description": "Health, index status, and operational controls"
+    }
+  ]
+}

@@ -7,29 +7,36 @@
 
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
+use rgbpp_indexer::reconcile::{AddressReconcile, OutpointRefresh, TransitionResolution};
 use rgbpp_store::models::{AnomalyRow, AssetBalanceRow, AssetRow, CellRow, TransitionRow};
+use rgbpp_store::stats::IndexerCounts;
+use rgbpp_types::state::OutpointSpendStatus;
 use serde::Serialize;
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CkbOutPointDto {
     pub tx_hash: String,
     pub index: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct BtcOutPointDto {
     pub txid: String,
     pub vout: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct BtcTimeDto {
+    /// Bitcoin confirmations `btc_txid` needs before the cell unlocks.
     pub after: u32,
     pub btc_txid: String,
+    /// Lock the cell falls back to once `after` is met.
+    #[schema(value_type = Option<ScriptDto>)]
     pub target_lock: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CreatedDto {
     pub block_number: i64,
     /// `-1` means the cell was backfilled from the node, where the position inside
@@ -37,13 +44,13 @@ pub struct CreatedDto {
     pub tx_index: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ConsumedDto {
     pub block_number: i64,
     pub tx_hash: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct BtcObservationDto {
     pub status: String,
     pub spender: Option<String>,
@@ -52,7 +59,7 @@ pub struct BtcObservationDto {
     pub address: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CellDto {
     pub ckb_out_point: CkbOutPointDto,
     pub lock_kind: String,
@@ -60,12 +67,20 @@ pub struct CellDto {
     pub btc_out_point: Option<BtcOutPointDto>,
     pub btc_time: Option<BtcTimeDto>,
     pub type_hash: Option<String>,
+    #[schema(value_type = Option<ScriptDto>)]
     pub type_script: Option<serde_json::Value>,
+    /// `xudt`, `sudt`, `spore`, `spore_cluster`, `unknown` (a type script matching
+    /// no configured code hash) or `none` (no type script).
     pub asset_kind: String,
+    /// UDT amount as a decimal string. Null for non-fungible assets.
     pub amount: Option<String>,
+    /// Shannons, as a decimal string.
     pub capacity: String,
+    /// Cell data, `0x`-prefixed hex.
     pub data: String,
-    /// Derived from the CKB fact and the Bitcoin observation together.
+    /// `live`, `pending_ckb` (bound UTXO spent on Bitcoin, CKB transition not
+    /// indexed yet) or `spent`. Derived from the CKB fact and the Bitcoin
+    /// observation together.
     pub status: String,
     pub created: CreatedDto,
     pub consumed: Option<ConsumedDto>,
@@ -141,7 +156,7 @@ impl From<CellRow> for CellDto {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct TransitionDto {
     pub ckb_tx_hash: String,
     pub block_number: i64,
@@ -174,13 +189,13 @@ impl From<TransitionRow> for TransitionDto {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AssetBalanceDto {
     pub asset_kind: String,
     pub type_hash: Option<String>,
     pub cell_count: i64,
     pub total_capacity: String,
-    /// Absent for non-fungible assets.
+    /// Null for non-fungible assets.
     pub total_amount: Option<String>,
 }
 
@@ -215,7 +230,7 @@ impl From<AssetBalanceRow> for AssetBalanceDto {
 /// There is no `symbol` and no `decimals` field, and there will not be one until
 /// something indexes the cells that publish them: the type script hash is the whole
 /// identity of an asset here. A client that needs a name has to resolve it itself.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AssetDto {
     pub type_hash: String,
     pub asset_kind: String,
@@ -223,7 +238,7 @@ pub struct AssetDto {
     pub live_cell_count: i64,
     /// Distinct Bitcoin outpoints currently holding it.
     pub live_seal_count: i64,
-    /// Absent for non-fungible assets.
+    /// Null for non-fungible assets.
     pub total_amount: Option<String>,
     pub first_block_number: i64,
     pub first_ckb_tx_hash: String,
@@ -256,12 +271,13 @@ impl From<AssetRow> for AssetDto {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AnomalyDto {
     pub id: i64,
     pub kind: String,
     pub btc_out_point: Option<BtcOutPointDto>,
     pub ckb_out_point: Option<CkbOutPointDto>,
+    #[schema(value_type = Object)]
     pub detail: serde_json::Value,
     pub detected_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
@@ -295,16 +311,16 @@ impl From<AnomalyRow> for AnomalyDto {
 /// What `/status` reports. Deliberately explicit about the lag: an application that
 /// does not know how far behind the indexed range is cannot tell "not there" from
 /// "not there yet".
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct StatusDto {
     pub network: String,
     pub btc_source: String,
     pub ckb: CkbStatusDto,
-    pub counts: rgbpp_store::stats::IndexerCounts,
+    pub counts: CountsDto,
     pub last_sweep: Option<SweepStatusDto>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CkbStatusDto {
     pub indexed_to: i64,
     pub target: Option<i64>,
@@ -317,7 +333,7 @@ pub struct CkbStatusDto {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct SweepStatusDto {
     pub id: i64,
     pub started_at: DateTime<Utc>,
@@ -325,6 +341,229 @@ pub struct SweepStatusDto {
     pub outpoints_checked: i64,
     pub anomalies_found: i64,
     pub status: String,
+}
+
+/// A CKB script as stored with the cell.
+///
+/// Documentation only: the field it describes is passed through as stored JSON, but
+/// always has exactly this shape.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ScriptDto {
+    /// `0x`-prefixed hex.
+    pub code_hash: String,
+    /// `data`, `type`, `data1` or `data2`.
+    pub hash_type: String,
+    /// `0x`-prefixed hex.
+    pub args: String,
+}
+
+/// Derived counts, computed on every request.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CountsDto {
+    pub total_cells: i64,
+    pub live_cells: i64,
+    pub pending_ckb_cells: i64,
+    pub transitions: i64,
+    pub observed_outpoints: i64,
+    pub open_anomalies: i64,
+    pub refresh_queue_depth: i64,
+    /// Distinct UDT type script hashes seen under an RGB++ lock.
+    pub udts: i64,
+    /// Distinct Spore type script hashes.
+    pub dobs: i64,
+}
+
+impl From<IndexerCounts> for CountsDto {
+    fn from(c: IndexerCounts) -> Self {
+        CountsDto {
+            total_cells: c.total_cells,
+            live_cells: c.live_cells,
+            pending_ckb_cells: c.pending_ckb_cells,
+            transitions: c.transitions,
+            observed_outpoints: c.observed_outpoints,
+            open_anomalies: c.open_anomalies,
+            refresh_queue_depth: c.refresh_queue_depth,
+            udts: c.udts,
+            dobs: c.dobs,
+        }
+    }
+}
+
+// The types below mirror domain types from `rgbpp-indexer` and `rgbpp-types` that
+// responses used to serialize directly. Owning them here keeps the HTTP contract in
+// the crate that documents it: a refactor elsewhere can no longer change the wire
+// format without touching this file. `tests::mirrors_serialize_identically` pins the
+// output to what the domain types produced.
+
+/// What the Bitcoin data source last said about one outpoint.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case", tag = "status")]
+pub enum SpendStatusDto {
+    /// Never observed, or the observation has been invalidated.
+    Unknown,
+    Unspent,
+    /// Spent by a transaction still in the mempool.
+    SpentUnconfirmed {
+        spender: String,
+    },
+    SpentConfirmed {
+        spender: String,
+        height: u32,
+    },
+}
+
+impl From<OutpointSpendStatus> for SpendStatusDto {
+    fn from(s: OutpointSpendStatus) -> Self {
+        match s {
+            OutpointSpendStatus::Unknown => SpendStatusDto::Unknown,
+            OutpointSpendStatus::Unspent => SpendStatusDto::Unspent,
+            OutpointSpendStatus::SpentUnconfirmed { spender } => SpendStatusDto::SpentUnconfirmed {
+                spender: spender.to_hex(),
+            },
+            OutpointSpendStatus::SpentConfirmed { spender, height } => {
+                SpendStatusDto::SpentConfirmed {
+                    spender: spender.to_hex(),
+                    height,
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OutpointRefreshDto {
+    pub outpoint: BtcOutPointDto,
+    pub status: SpendStatusDto,
+    /// Whether this observation differs from what the indexer previously held.
+    pub changed: bool,
+}
+
+impl From<OutpointRefresh> for OutpointRefreshDto {
+    fn from(r: OutpointRefresh) -> Self {
+        OutpointRefreshDto {
+            outpoint: BtcOutPointDto {
+                txid: r.outpoint.txid.to_hex(),
+                vout: r.outpoint.vout,
+            },
+            status: r.status.into(),
+            changed: r.changed,
+        }
+    }
+}
+
+/// Outcome of diffing an address's live UTXO set against the index.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AddressReconcileDto {
+    pub address: String,
+    /// Outpoints currently unspent according to the Bitcoin data source.
+    pub source_utxo_count: usize,
+    /// Believed live by the index, no longer listed by the data source.
+    pub disappeared: Vec<BtcOutPointDto>,
+    /// Recorded as spent by the index, still listed as unspent by the data source —
+    /// a replaced transaction or a Bitcoin reorg.
+    pub contradicted: Vec<BtcOutPointDto>,
+    pub refreshed: Vec<OutpointRefreshDto>,
+}
+
+impl From<AddressReconcile> for AddressReconcileDto {
+    fn from(r: AddressReconcile) -> Self {
+        let outpoints = |v: Vec<rgbpp_types::BtcOutPoint>| {
+            v.into_iter()
+                .map(|o| BtcOutPointDto {
+                    txid: o.txid.to_hex(),
+                    vout: o.vout,
+                })
+                .collect()
+        };
+        AddressReconcileDto {
+            address: r.address,
+            source_utxo_count: r.source_utxo_count,
+            disappeared: outpoints(r.disappeared),
+            contradicted: outpoints(r.contradicted),
+            refreshed: r.refreshed.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Where an RGB++ transaction has got to, across both chains.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case", tag = "state")]
+pub enum TransitionResolutionDto {
+    /// The Bitcoin data source has never heard of this transaction.
+    UnknownBtcTx,
+    /// Seen on Bitcoin; no CKB transaction found yet.
+    AwaitingCkb {
+        btc_confirmed: bool,
+        btc_height: Option<u32>,
+    },
+    /// Cells for this transaction exist on CKB above the indexed range: the
+    /// transition is real, the index has not reached it yet.
+    CkbSeenAboveLag {
+        cells: Vec<CkbOutPointDto>,
+        indexed_to: i64,
+    },
+    /// A CKB transition is indexed for this Bitcoin transaction.
+    Indexed {
+        ckb_tx_hash: String,
+        block_number: i64,
+    },
+}
+
+impl From<TransitionResolution> for TransitionResolutionDto {
+    fn from(r: TransitionResolution) -> Self {
+        match r {
+            TransitionResolution::UnknownBtcTx => TransitionResolutionDto::UnknownBtcTx,
+            TransitionResolution::AwaitingCkb {
+                btc_confirmed,
+                btc_height,
+            } => TransitionResolutionDto::AwaitingCkb {
+                btc_confirmed,
+                btc_height,
+            },
+            TransitionResolution::CkbSeenAboveLag { cells, indexed_to } => {
+                TransitionResolutionDto::CkbSeenAboveLag {
+                    cells: cells
+                        .into_iter()
+                        .map(|c| CkbOutPointDto {
+                            tx_hash: c.tx_hash.to_hex(),
+                            index: c.index,
+                        })
+                        .collect(),
+                    indexed_to,
+                }
+            }
+            TransitionResolution::Indexed {
+                ckb_tx_hash,
+                block_number,
+            } => TransitionResolutionDto::Indexed {
+                ckb_tx_hash,
+                block_number,
+            },
+        }
+    }
+}
+
+/// Every error response has this shape.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorResponse {
+    pub error: ErrorBody,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorBody {
+    pub kind: ErrorKind,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorKind {
+    /// A malformed parameter. Retrying the same request will not help.
+    BadRequest,
+    NotFound,
+    /// The Bitcoin data source or CKB node did not answer. Safe to retry.
+    UpstreamUnavailable,
+    Internal,
 }
 
 #[cfg(test)]
@@ -359,26 +598,110 @@ mod tests {
             "1020847100762815390390123822295304634365"
         );
     }
+
+    /// Responses used to serialize these domain types directly. The mirrors must
+    /// produce exactly the same JSON, or moving to them was a breaking change.
+    #[test]
+    fn mirrors_serialize_identically() {
+        use rgbpp_types::bitcoin::{BtcOutPoint, BtcTxid};
+        use rgbpp_types::ckb::{CkbOutPoint, H256};
+        use serde_json::to_value;
+
+        let out = BtcOutPoint::new(BtcTxid::from_display_bytes([0xab; 32]), 3);
+        let spender = BtcTxid::from_display_bytes([0xcd; 32]);
+        let statuses = [
+            OutpointSpendStatus::Unknown,
+            OutpointSpendStatus::Unspent,
+            OutpointSpendStatus::SpentUnconfirmed { spender },
+            OutpointSpendStatus::SpentConfirmed {
+                spender,
+                height: 800_000,
+            },
+        ];
+        for status in statuses {
+            assert_eq!(
+                to_value(status).unwrap(),
+                to_value(SpendStatusDto::from(status)).unwrap()
+            );
+        }
+
+        let reconcile = AddressReconcile {
+            address: "bc1qexample".into(),
+            source_utxo_count: 2,
+            disappeared: vec![out],
+            contradicted: vec![out],
+            refreshed: statuses
+                .iter()
+                .map(|&status| OutpointRefresh {
+                    outpoint: out,
+                    status,
+                    changed: true,
+                })
+                .collect(),
+        };
+        assert_eq!(
+            to_value(&reconcile).unwrap(),
+            to_value(AddressReconcileDto::from(reconcile.clone())).unwrap()
+        );
+
+        let resolutions = [
+            TransitionResolution::UnknownBtcTx,
+            TransitionResolution::AwaitingCkb {
+                btc_confirmed: true,
+                btc_height: Some(800_000),
+            },
+            TransitionResolution::CkbSeenAboveLag {
+                cells: vec![CkbOutPoint::new(H256([0x11; 32]), 1)],
+                indexed_to: 13_000_000,
+            },
+            TransitionResolution::Indexed {
+                ckb_tx_hash: "0x1111".into(),
+                block_number: 13_000_001,
+            },
+        ];
+        for resolution in resolutions {
+            assert_eq!(
+                to_value(&resolution).unwrap(),
+                to_value(TransitionResolutionDto::from(resolution.clone())).unwrap()
+            );
+        }
+
+        let counts = IndexerCounts {
+            total_cells: 1,
+            live_cells: 2,
+            pending_ckb_cells: 3,
+            transitions: 4,
+            observed_outpoints: 5,
+            open_anomalies: 6,
+            refresh_queue_depth: 7,
+            udts: 8,
+            dobs: 9,
+        };
+        assert_eq!(
+            to_value(&counts).unwrap(),
+            to_value(CountsDto::from(counts.clone())).unwrap()
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Activity
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ActivityBtcDto {
     pub txid: String,
     pub confirmed: bool,
     pub block_height: Option<i32>,
     pub block_hash: Option<String>,
     pub block_time: Option<DateTime<Utc>>,
-    /// Satoshis. Absent when the transaction has not been observed yet, or when the
+    /// Satoshis. Null when the transaction has not been observed yet, or when the
     /// data source does not report a fee.
     pub fee: Option<String>,
 }
 
 /// A cell an address gained or lost.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ActivityCellDto {
     pub ckb_out_point: CkbOutPointDto,
     pub btc_out_point: Option<BtcOutPointDto>,
@@ -393,17 +716,17 @@ pub struct ActivityCellDto {
 /// Computed here rather than left to the caller: every client would otherwise
 /// reimplement the same signed sum over received minus sent, and a history row that
 /// says "−100 TOKEN" is the whole point of the endpoint.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AssetDeltaDto {
     pub asset_kind: String,
     pub type_hash: Option<String>,
-    /// Signed decimal string. Absent for non-fungible assets.
+    /// Signed decimal string. Null for non-fungible assets.
     pub amount: Option<String>,
     pub capacity: String,
     pub cell_delta: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ActivityDirection {
     /// Only gained cells.
@@ -414,7 +737,7 @@ pub enum ActivityDirection {
     Self_,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ActivityEntryDto {
     pub ckb_tx_hash: String,
     pub block_number: i64,
@@ -432,11 +755,11 @@ pub struct ActivityEntryDto {
     pub cursor: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AddressActivityDto {
     pub address: String,
     pub entries: Vec<ActivityEntryDto>,
-    /// Absent when the page reached the end of the history.
+    /// Null when the page reached the end of the history.
     pub next_cursor: Option<String>,
     /// Bindings anywhere in the index whose owning address is still unresolved.
     ///

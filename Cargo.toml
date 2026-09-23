@@ -52,6 +52,8 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+utoipa = { version = "5.5", features = ["chrono"] }
+utoipa-axum = "0.2"
 
 [profile.release]
 opt-level = 3

@@ -274,6 +274,7 @@ The knobs that matter most:
 |---|---|
 | `GET /health` | liveness |
 | `GET /status` | indexed height, chain tip, lag, derived counts, last sweep |
+| `GET /openapi.json` | OpenAPI 3.1 spec for everything below; also committed as [`docs/openapi.json`](docs/openapi.json) |
 | `GET /v1/rgbpp/assets` | every distinct asset by type hash; `?kind=udt\|dob\|unknown\|all`, `?limit=`, `?offset=` |
 | `GET /v1/rgbpp/assets/by-btc-address/{address}` | **reconciles first**; `?reconcile=false` to skip |
 | `GET /v1/rgbpp/balance/by-btc-address/{address}` | derived on read; `?include_pending=true` counts in-flight cells |
@@ -321,6 +322,14 @@ migrations/       schema
 ```bash
 cargo test                                     # unit + commitment vectors
 TEST_DATABASE_URL=postgres://rgbpp:rgbpp@localhost:5432/rgbpp cargo test -p rgbpp-store
+```
+
+`docs/openapi.json` is generated from the handler annotations and checked by
+`committed_spec_is_current`, so an API change fails the build until the spec is
+regenerated — and shows up in review as a spec diff:
+
+```bash
+UPDATE_OPENAPI=1 cargo test -p rgbpp-api committed_spec
 ```
 
 The store writes runtime SQL so that building never needs a database, which means the
